@@ -1,47 +1,48 @@
 import { Analytics } from '@vercel/analytics/next'
 import type { Metadata, Viewport } from 'next'
+import { Inter, Archivo } from 'next/font/google'
 import './globals.css'
+import { CartProvider } from '@/components/cart/cart-provider'
+import { WishlistProvider } from '@/components/wishlist/wishlist-provider'
+import { Header } from '@/components/layout/header'
+import { Footer } from '@/components/layout/footer'
+import { getCartAction } from '@/app/actions/cart'
+import { getCurrentCustomer } from '@/app/actions/auth'
+
+const inter = Inter({ subsets: ['latin'], variable: '--font-inter' })
+const archivo = Archivo({ subsets: ['latin'], variable: '--font-archivo' })
 
 export const metadata: Metadata = {
-  title: 'v0 App',
-  description: 'Created with v0',
+  title: 'GLOWA — Trendy Fashion, Tiny Prices',
+  description:
+    'Shop the latest fast-fashion trends in womenswear, menswear, shoes, beauty and home at GLOWA. New drops daily, unbeatable prices.',
   generator: 'v0.app',
-  icons: {
-    icon: [
-      {
-        url: '/icon-light-32x32.png',
-        media: '(prefers-color-scheme: light)',
-      },
-      {
-        url: '/icon-dark-32x32.png',
-        media: '(prefers-color-scheme: dark)',
-      },
-      {
-        url: '/icon.svg',
-        type: 'image/svg+xml',
-      },
-    ],
-    apple: '/apple-icon.png',
-  },
 }
 
 export const viewport: Viewport = {
-  colorScheme: 'light dark',
-  themeColor: [
-    { media: '(prefers-color-scheme: light)', color: 'white' },
-    { media: '(prefers-color-scheme: dark)', color: 'black' },
-  ],
+  colorScheme: 'light',
+  themeColor: '#ffffff',
 }
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode
 }>) {
+  const [cart, customer] = await Promise.all([getCartAction(), getCurrentCustomer()])
+
   return (
-    <html lang="en">
-      <body className="antialiased">
-        {children}
+    <html lang="en" className={`light ${inter.variable} ${archivo.variable}`}>
+      <body className="antialiased font-sans bg-background text-foreground">
+        <WishlistProvider>
+          <CartProvider initialCart={cart}>
+            <div className="flex min-h-screen flex-col">
+              <Header customer={customer} />
+              <main className="flex-1">{children}</main>
+              <Footer />
+            </div>
+          </CartProvider>
+        </WishlistProvider>
         {process.env.NODE_ENV === 'production' && <Analytics />}
       </body>
     </html>
