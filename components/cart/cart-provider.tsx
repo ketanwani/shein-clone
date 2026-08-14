@@ -21,14 +21,16 @@ type CartContextValue = {
 
 const CartContext = createContext<CartContextValue | null>(null)
 
-export function CartProvider({ children }: { children: ReactNode }) {
-  const [cart, setCart] = useState<Cart | null>(null)
+export function CartProvider({
+  children,
+  initialCart,
+}: {
+  children: ReactNode
+  initialCart: Cart | null
+}) {
+  const [cart, setCart] = useState<Cart | null>(initialCart)
   const [isOpen, setIsOpen] = useState(false)
   const [isPending, startTransition] = useTransition()
-
-  useEffect(() => {
-    getCartAction().then(setCart)
-  }, [])
 
   const openCart = () => setIsOpen(true)
   const closeCart = () => setIsOpen(false)

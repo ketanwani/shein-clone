@@ -75,7 +75,7 @@ export type Cart = {
   lines: CartLine[]
 }
 
-export type CustomerOrder = {
+export type Order = {
   id: string
   orderNumber: number
   processedAt: string
@@ -85,7 +85,8 @@ export type CustomerOrder = {
   lineItems: {
     title: string
     quantity: number
-    image: ProductImage | null
+    image: { url: string; altText: string | null } | null
+    price: Money
   }[]
 }
 
