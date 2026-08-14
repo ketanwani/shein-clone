@@ -1,29 +1,53 @@
 "use client"
 
 import Link from "next/link"
-import { useActionState } from "react"
-import { useFormStatus } from "react-dom"
-import { signInAction, signUpAction, type AuthState } from "@/app/actions/auth"
-
-function SubmitButton({ label }: { label: string }) {
-  const { pending } = useFormStatus()
-  return (
-    <button
-      type="submit"
-      disabled={pending}
-      className="mt-2 w-full rounded-full bg-accent py-3 text-sm font-bold text-accent-foreground transition hover:opacity-90 disabled:opacity-60"
-    >
-      {pending ? "Please wait..." : label}
-    </button>
-  )
-}
+import { useRouter } from "next/navigation"
+import { useState } from "react"
+import { authClient } from "@/lib/auth-client"
 
 const inputClass =
   "w-full rounded-lg border border-border bg-background px-4 py-3 text-sm outline-none focus:border-accent"
 
 export function AuthForm({ mode }: { mode: "login" | "signup" }) {
-  const action = mode === "login" ? signInAction : signUpAction
-  const [state, formAction] = useActionState<AuthState, FormData>(action, { error: null })
+  const router = useRouter()
+  const [error, setError] = useState<string | null>(null)
+  const [pending, setPending] = useState(false)
+
+  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault()
+    setError(null)
+    setPending(true)
+
+    const form = new FormData(e.currentTarget)
+    const email = String(form.get("email") ?? "").trim()
+    const password = String(form.get("password") ?? "")
+
+    try {
+      if (mode === "signup") {
+        const firstName = String(form.get("firstName") ?? "").trim()
+        const lastName = String(form.get("lastName") ?? "").trim()
+        const name = [firstName, lastName].filter(Boolean).join(" ") || firstName
+        const { error } = await authClient.signUp.email({ email, password, name })
+        if (error) {
+          setError(error.message ?? "Could not create your account.")
+          setPending(false)
+          return
+        }
+      } else {
+        const { error } = await authClient.signIn.email({ email, password })
+        if (error) {
+          setError(error.message ?? "Incorrect email or password.")
+          setPending(false)
+          return
+        }
+      }
+      router.push("/account")
+      router.refresh()
+    } catch {
+      setError("Something went wrong. Please try again.")
+      setPending(false)
+    }
+  }
 
   return (
     <div className="mx-auto max-w-md px-4 py-12">
@@ -36,7 +60,7 @@ export function AuthForm({ mode }: { mode: "login" | "signup" }) {
           : "Create an account for faster checkout and exclusive drops."}
       </p>
 
-      <form action={formAction} className="mt-8 flex flex-col gap-4">
+      <form onSubmit={handleSubmit} className="mt-8 flex flex-col gap-4">
         {mode === "signup" && (
           <div className="flex gap-3">
             <input name="firstName" placeholder="First name" required className={inputClass} aria-label="First name" />
@@ -63,13 +87,19 @@ export function AuthForm({ mode }: { mode: "login" | "signup" }) {
           aria-label="Password"
         />
 
-        {state.error && (
+        {error && (
           <p role="alert" className="rounded-lg bg-sale/10 px-4 py-2 text-sm text-sale">
-            {state.error}
+            {error}
           </p>
         )}
 
-        <SubmitButton label={mode === "login" ? "Sign In" : "Create Account"} />
+        <button
+          type="submit"
+          disabled={pending}
+          className="mt-2 w-full rounded-full bg-accent py-3 text-sm font-bold text-accent-foreground transition hover:opacity-90 disabled:opacity-60"
+        >
+          {pending ? "Please wait..." : mode === "login" ? "Sign In" : "Create Account"}
+        </button>
       </form>
 
       <p className="mt-6 text-center text-sm text-muted-foreground">

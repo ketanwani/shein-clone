@@ -75,24 +75,4 @@ export type Cart = {
   lines: CartLine[]
 }
 
-export type Order = {
-  id: string
-  orderNumber: number
-  processedAt: string
-  financialStatus: string | null
-  fulfillmentStatus: string | null
-  totalPrice: Money
-  lineItems: {
-    title: string
-    quantity: number
-    image: { url: string; altText: string | null } | null
-    price: Money
-  }[]
-}
 
-export type Customer = {
-  id: string
-  firstName: string | null
-  lastName: string | null
-  email: string | null
-}

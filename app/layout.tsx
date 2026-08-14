@@ -7,7 +7,8 @@ import { WishlistProvider } from '@/components/wishlist/wishlist-provider'
 import { Header } from '@/components/layout/header'
 import { Footer } from '@/components/layout/footer'
 import { getCartAction } from '@/app/actions/cart'
-import { getCurrentCustomer } from '@/app/actions/auth'
+import { auth } from '@/lib/auth'
+import { headers } from 'next/headers'
 
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter' })
 const archivo = Archivo({ subsets: ['latin'], variable: '--font-archivo' })
@@ -29,15 +30,19 @@ export default async function RootLayout({
 }: Readonly<{
   children: React.ReactNode
 }>) {
-  const [cart, customer] = await Promise.all([getCartAction(), getCurrentCustomer()])
+  const [cart, session] = await Promise.all([
+    getCartAction(),
+    auth.api.getSession({ headers: await headers() }),
+  ])
+  const user = session?.user ?? null
 
   return (
     <html lang="en" className={`light ${inter.variable} ${archivo.variable}`}>
       <body className="antialiased font-sans bg-background text-foreground">
-        <WishlistProvider>
+        <WishlistProvider isLoggedIn={!!user}>
           <CartProvider initialCart={cart}>
             <div className="flex min-h-screen flex-col">
-              <Header customer={customer} />
+              <Header user={user} />
               <main className="flex-1">{children}</main>
               <Footer />
             </div>

@@ -5,11 +5,12 @@ import { useRouter } from "next/navigation"
 import { useState } from "react"
 import { Search, Heart, ShoppingBag, User, Menu, X } from "lucide-react"
 import { CATEGORIES } from "@/lib/categories"
-import type { Customer } from "@/lib/shopify/types"
 import { useCart } from "@/components/cart/cart-provider"
 import { CartDrawer } from "@/components/cart/cart-drawer"
 
-export function Header({ customer }: { customer: Customer | null }) {
+type SessionUser = { name?: string | null } | null
+
+export function Header({ user }: { user: SessionUser }) {
   const router = useRouter()
   const { cart, openCart } = useCart()
   const [mobileOpen, setMobileOpen] = useState(false)
@@ -63,12 +64,14 @@ export function Header({ customer }: { customer: Customer | null }) {
 
         <nav className="ml-auto flex items-center gap-3 lg:ml-0">
           <Link
-            href={customer ? "/account" : "/login"}
+            href={user ? "/account" : "/login"}
             className="flex items-center gap-1 text-sm hover:text-accent"
-            aria-label={customer ? "Account" : "Sign in"}
+            aria-label={user ? "Account" : "Sign in"}
           >
             <User className="h-5 w-5" />
-            <span className="hidden xl:inline">{customer ? customer.firstName ?? "Account" : "Sign in"}</span>
+            <span className="hidden xl:inline">
+              {user ? (user.name?.split(" ")[0] ?? "Account") : "Sign in"}
+            </span>
           </Link>
           <Link href="/wishlist" className="hover:text-accent" aria-label="Wishlist">
             <Heart className="h-5 w-5" />
