@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, boolean, serial } from "drizzle-orm/pg-core"
+import { pgTable, text, timestamp, boolean, serial, integer, numeric } from "drizzle-orm/pg-core"
 
 // --- Better Auth required tables -------------------------------------------
 // Column names are camelCase to match Better Auth's defaults. Do not rename.
@@ -61,4 +61,37 @@ export const wishlistItem = pgTable("wishlist_item", {
   userId: text("userId").notNull(),
   productHandle: text("productHandle").notNull(),
   createdAt: timestamp("createdAt").notNull().defaultNow(),
+})
+
+// Orders: one row per placed order. Scoped by userId.
+export const order = pgTable("order", {
+  id: serial("id").primaryKey(),
+  userId: text("userId").notNull(),
+  orderNumber: text("orderNumber").notNull(),
+  email: text("email").notNull(),
+  shippingName: text("shippingName").notNull(),
+  shippingAddress: text("shippingAddress").notNull(),
+  shippingCity: text("shippingCity").notNull(),
+  shippingZip: text("shippingZip").notNull(),
+  shippingCountry: text("shippingCountry").notNull(),
+  subtotal: numeric("subtotal", { precision: 10, scale: 2 }).notNull(),
+  shipping: numeric("shipping", { precision: 10, scale: 2 }).notNull().default("0"),
+  tax: numeric("tax", { precision: 10, scale: 2 }).notNull().default("0"),
+  total: numeric("total", { precision: 10, scale: 2 }).notNull(),
+  currency: text("currency").notNull().default("USD"),
+  cardLast4: text("cardLast4"),
+  status: text("status").notNull().default("paid"),
+  createdAt: timestamp("createdAt").notNull().defaultNow(),
+})
+
+// Line items for an order, linked by orderId.
+export const orderItem = pgTable("order_item", {
+  id: serial("id").primaryKey(),
+  orderId: integer("orderId").notNull(),
+  title: text("title").notNull(),
+  variantTitle: text("variantTitle"),
+  quantity: integer("quantity").notNull(),
+  price: numeric("price", { precision: 10, scale: 2 }).notNull(),
+  imageUrl: text("imageUrl"),
+  productHandle: text("productHandle"),
 })

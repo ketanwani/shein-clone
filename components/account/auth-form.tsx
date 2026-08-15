@@ -8,7 +8,7 @@ import { authClient } from "@/lib/auth-client"
 const inputClass =
   "w-full rounded-lg border border-border bg-background px-4 py-3 text-sm outline-none focus:border-accent"
 
-export function AuthForm({ mode }: { mode: "login" | "signup" }) {
+export function AuthForm({ mode, redirectTo = "/account" }: { mode: "login" | "signup"; redirectTo?: string }) {
   const router = useRouter()
   const [error, setError] = useState<string | null>(null)
   const [pending, setPending] = useState(false)
@@ -41,7 +41,7 @@ export function AuthForm({ mode }: { mode: "login" | "signup" }) {
           return
         }
       }
-      router.push("/account")
+      router.push(redirectTo)
       router.refresh()
     } catch {
       setError("Something went wrong. Please try again.")
@@ -106,14 +106,20 @@ export function AuthForm({ mode }: { mode: "login" | "signup" }) {
         {mode === "login" ? (
           <>
             New to GLOWA?{" "}
-            <Link href="/signup" className="font-semibold text-accent hover:underline">
+            <Link
+              href={redirectTo !== "/account" ? `/signup?redirect=${encodeURIComponent(redirectTo)}` : "/signup"}
+              className="font-semibold text-accent hover:underline"
+            >
               Create an account
             </Link>
           </>
         ) : (
           <>
             Already have an account?{" "}
-            <Link href="/login" className="font-semibold text-accent hover:underline">
+            <Link
+              href={redirectTo !== "/account" ? `/login?redirect=${encodeURIComponent(redirectTo)}` : "/login"}
+              className="font-semibold text-accent hover:underline"
+            >
               Sign in
             </Link>
           </>

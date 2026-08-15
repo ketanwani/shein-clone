@@ -6,8 +6,13 @@ import { AuthForm } from "@/components/account/auth-form"
 
 export const metadata: Metadata = { title: "Sign In — GLOWA" }
 
-export default async function LoginPage() {
+export default async function LoginPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ redirect?: string }>
+}) {
+  const { redirect: redirectTo } = await searchParams
   const session = await auth.api.getSession({ headers: await headers() })
-  if (session?.user) redirect("/account")
-  return <AuthForm mode="login" />
+  if (session?.user) redirect(redirectTo || "/account")
+  return <AuthForm mode="login" redirectTo={redirectTo || "/account"} />
 }
