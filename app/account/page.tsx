@@ -7,6 +7,8 @@ import { Package, Heart } from "lucide-react"
 import { auth } from "@/lib/auth"
 import { signOutAction } from "@/app/actions/account"
 import { getOrdersAction } from "@/app/actions/orders"
+import { listApiKeysAction } from "@/app/actions/api-keys"
+import { ApiKeys } from "@/components/account/api-keys"
 import { formatPrice } from "@/lib/utils/format"
 
 export const metadata: Metadata = { title: "My Account — GLOWA" }
@@ -16,7 +18,7 @@ export default async function AccountPage() {
   if (!session?.user) redirect("/login")
 
   const firstName = session.user.name?.split(" ")[0] ?? "there"
-  const orders = await getOrdersAction()
+  const [orders, apiKeys] = await Promise.all([getOrdersAction(), listApiKeysAction()])
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-10">
@@ -118,6 +120,8 @@ export default async function AccountPage() {
           ))}
         </ul>
       )}
+
+      <ApiKeys initialKeys={apiKeys} />
     </div>
   )
 }

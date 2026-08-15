@@ -95,3 +95,23 @@ export const orderItem = pgTable("order_item", {
   imageUrl: text("imageUrl"),
   productHandle: text("productHandle"),
 })
+
+// API keys for the public REST API. Only the SHA-256 hash is stored; the raw
+// key is shown to the user exactly once at creation. Scoped by userId.
+export const apiKey = pgTable("api_key", {
+  id: serial("id").primaryKey(),
+  userId: text("userId").notNull(),
+  label: text("label").notNull(),
+  keyPrefix: text("keyPrefix").notNull(),
+  keyHash: text("keyHash").notNull().unique(),
+  lastUsedAt: timestamp("lastUsedAt"),
+  createdAt: timestamp("createdAt").notNull().defaultNow(),
+})
+
+// Maps a user to their active Shopify cart id, so the REST API can resolve a
+// per-user cart without relying on browser cookies.
+export const userCart = pgTable("user_cart", {
+  userId: text("userId").primaryKey(),
+  cartId: text("cartId").notNull(),
+  updatedAt: timestamp("updatedAt").notNull().defaultNow(),
+})
