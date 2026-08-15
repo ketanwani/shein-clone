@@ -17,6 +17,7 @@ type CartContextValue = {
   addItem: (merchandiseId: string, quantity?: number) => void
   updateItem: (lineId: string, quantity: number) => void
   removeItem: (lineId: string) => void
+  clearCart: () => void
 }
 
 const CartContext = createContext<CartContextValue | null>(null)
@@ -57,9 +58,11 @@ export function CartProvider({
     })
   }
 
+  const clearCart = () => setCart(null)
+
   return (
     <CartContext.Provider
-      value={{ cart, isOpen, isPending, openCart, closeCart, addItem, updateItem, removeItem }}
+      value={{ cart, isOpen, isPending, openCart, closeCart, addItem, updateItem, removeItem, clearCart }}
     >
       {children}
     </CartContext.Provider>

@@ -52,3 +52,8 @@ export async function removeCartLineAction(lineId: string): Promise<Cart> {
   const cartId = await resolveCartId(true)
   return removeFromCart(cartId!, [lineId])
 }
+
+export async function clearCartAction(): Promise<void> {
+  const store = await cookies()
+  store.delete(CART_COOKIE)
+}

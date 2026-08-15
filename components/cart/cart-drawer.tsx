@@ -2,21 +2,19 @@
 
 import Image from "next/image"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { X, Minus, Plus, ShoppingBag, Trash2 } from "lucide-react"
 import { useCart } from "./cart-provider"
 import { formatMoney } from "@/lib/utils/format"
 
 export function CartDrawer() {
   const { cart, isOpen, isPending, closeCart, updateItem, removeItem } = useCart()
+  const router = useRouter()
 
   function checkout() {
-    if (!cart?.checkoutUrl) return
-    const url = `${cart.checkoutUrl}${cart.checkoutUrl.includes("?") ? "&" : "?"}channel=online_store`
-    if (window.self !== window.top) {
-      window.open(url, "_blank")
-    } else {
-      window.location.href = url
-    }
+    if (!cart || cart.lines.length === 0) return
+    closeCart()
+    router.push("/checkout")
   }
 
   return (
