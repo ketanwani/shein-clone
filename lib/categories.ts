@@ -1,3 +1,5 @@
+import { IS_MOCK_STORE } from "@/lib/shopify/client"
+
 export type Category = {
   slug: string
   name: string
@@ -27,6 +29,10 @@ export function getCategory(slug: string): Category | undefined {
 
 // Build a Shopify Storefront query string for a category.
 export function categoryQuery(category: Category): string | undefined {
+  // mock.shop has no tags or product types, and returns nothing for those filters.
+  // Drop the filter there so collection pages show the demo catalogue instead of
+  // rendering empty. A real store filters normally.
+  if (IS_MOCK_STORE) return undefined
   if (category.productType) return `product_type:'${category.productType}'`
   if (category.tag) return `tag:'${category.tag}'`
   return undefined

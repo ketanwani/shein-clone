@@ -13,3 +13,11 @@ __v0_jsx-dev-runtime.ts
 node_modules
 .next/
 .DS_Store
+next-env.d.ts
+tsconfig.tsbuildinfo
+
+# Local PGlite data directory
+.pgdata/
+
+# Machine-specific npm registry override (see LOCAL_SETUP.md)
+.npmrc

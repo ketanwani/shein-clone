@@ -3,6 +3,13 @@ const API_VERSION = "2025-04"
 const domain = process.env.SHOPIFY_STORE_DOMAIN
 const token = process.env.SHOPIFY_STOREFRONT_ACCESS_TOKEN
 
+/**
+ * Shopify's public demo storefront. It serves a small fixed catalogue and ignores
+ * `tag:` / `product_type:` search filters, so callers that rely on those need a
+ * fallback. See lib/categories.ts.
+ */
+export const IS_MOCK_STORE = domain === "mock.shop"
+
 export const endpoint = domain ? `https://${domain}/api/${API_VERSION}/graphql.json` : ""
 
 export type ShopifyFetchOptions = {
