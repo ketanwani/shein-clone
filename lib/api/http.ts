@@ -1,5 +1,6 @@
 import { headers } from "next/headers"
 import { auth } from "@/lib/auth"
+import { logRequestEnd, logRequestStart } from "@/lib/api/log"
 
 const SIGN_IN_HINT =
   "POST /api/auth/email-otp/send-verification-otp with {email, type:'sign-in'}, then POST /api/auth/sign-in/email-otp with {email, otp} and send the returned token as `Authorization: Bearer <token>`."
@@ -68,17 +69,21 @@ export function toErrorResponse(err: unknown) {
     return json({ error: { code: "unauthorized", message: "Sign in first.", hint: SIGN_IN_HINT } }, 401)
   }
 
-  console.error("[api]", err)
+  console.error("[api] unhandled error:", err)
   return json({ error: { code: "internal_error", message } }, 500)
 }
 
-/** Wraps a route handler so thrown errors become documented JSON error bodies. */
-export async function handle(fn: () => Promise<Response>) {
+/** Wraps a route handler so thrown errors become documented JSON error bodies, and logs both sides. */
+export async function handle(request: Request, fn: () => Promise<Response>) {
+  const pending = logRequestStart(request)
+  let response: Response
   try {
-    return await fn()
+    response = await fn()
   } catch (err) {
-    return toErrorResponse(err)
+    response = toErrorResponse(err)
   }
+  await logRequestEnd(pending, response)
+  return response
 }
 
 /** 503 before doing any work, rather than a confusing connection error from pg. */

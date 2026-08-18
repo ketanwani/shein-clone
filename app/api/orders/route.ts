@@ -1,8 +1,8 @@
 import { getOrderByNumberAction, getOrdersAction, placeOrderAction } from "@/app/actions/orders"
 import { ApiFailure, handle, json, readJsonBody, readString, requireUser } from "@/lib/api/http"
 
-export async function GET() {
-  return handle(async () => {
+export async function GET(request: Request) {
+  return handle(request, async () => {
     await requireUser()
     const orders = await getOrdersAction()
     return json({ count: orders.length, orders })
@@ -14,7 +14,7 @@ export async function GET() {
  * from Shopify prices, so no amounts are accepted from the client.
  */
 export async function POST(request: Request) {
-  return handle(async () => {
+  return handle(request, async () => {
     await requireUser()
     const body = await readJsonBody(request)
 

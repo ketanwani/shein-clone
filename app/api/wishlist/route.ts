@@ -2,7 +2,7 @@ import { addToServerWishlist, getServerWishlist, getWishlistProducts } from "@/a
 import { handle, json, readJsonBody, readString, requireUser } from "@/lib/api/http"
 
 export async function GET(request: Request) {
-  return handle(async () => {
+  return handle(request, async () => {
     await requireUser()
     const handles = (await getServerWishlist()) ?? []
     const expand = new URL(request.url).searchParams.get("expand") === "products"
@@ -16,7 +16,7 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  return handle(async () => {
+  return handle(request, async () => {
     await requireUser()
     const body = await readJsonBody(request)
     const productHandle = readString(body, "handle")

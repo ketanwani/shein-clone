@@ -1,8 +1,8 @@
 import { getOrderByNumberAction } from "@/app/actions/orders"
 import { handle, json, notFound, requireUser } from "@/lib/api/http"
 
-export async function GET(_request: Request, { params }: { params: Promise<{ orderNumber: string }> }) {
-  return handle(async () => {
+export async function GET(request: Request, { params }: { params: Promise<{ orderNumber: string }> }) {
+  return handle(request, async () => {
     await requireUser()
     const { orderNumber } = await params
 
