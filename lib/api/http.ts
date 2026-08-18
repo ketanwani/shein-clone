@@ -63,15 +63,35 @@ export function toErrorResponse(err: unknown) {
   return json({ error: { code: "internal_error", message } }, 500)
 }
 
-/** Wraps a route handler so thrown errors become documented JSON error bodies, and logs both sides. */
+/**
+ * Wraps a user-scoped or mutating route: thrown errors become documented JSON error
+ * bodies, both sides are logged, and agent credentials are checked up front.
+ */
 export async function handle(request: Request, fn: () => Promise<Response>) {
+  return run(request, fn, { requireValidAgentKey: true })
+}
+
+/**
+ * Wraps a public route — the catalogue reads.
+ *
+ * These need no credential, so a credential they do not use must not be able to break
+ * them. An agent platform injects X-Agent-Key on every outbound call, so validating it
+ * here would mean one missing or rotated-out secret takes down browsing and search
+ * along with checkout, leaving the agent unable to so much as list a product. Routes
+ * that actually consult the caller resolve and validate it themselves.
+ */
+export async function handlePublic(request: Request, fn: () => Promise<Response>) {
+  return run(request, fn, { requireValidAgentKey: false })
+}
+
+async function run(request: Request, fn: () => Promise<Response>, { requireValidAgentKey }: { requireValidAgentKey: boolean }) {
   const pending = logRequestStart(request)
   let response: Response
   try {
     // Before anything else, including reading the body: a caller presenting agent
     // credentials must check out, or it gets 401 rather than a validation error that
     // would let it probe the endpoint unauthenticated.
-    await assertAgentKey()
+    if (requireValidAgentKey) await assertAgentKey()
     response = await fn()
   } catch (err) {
     response = toErrorResponse(err)

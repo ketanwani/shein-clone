@@ -1,8 +1,8 @@
 import { CATEGORIES } from "@/lib/categories"
-import { handle, json } from "@/lib/api/http"
+import { handlePublic, json } from "@/lib/api/http"
 
 export async function GET(request: Request) {
-  return handle(request, async () =>
+  return handlePublic(request, async () =>
     json({
       count: CATEGORIES.length,
       collections: CATEGORIES.map((c) => ({
