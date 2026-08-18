@@ -1,24 +1,19 @@
 import { betterAuth } from "better-auth"
-import { bearer, emailOTP } from "better-auth/plugins"
+import { bearer } from "better-auth/plugins"
 import { pool } from "@/lib/db"
 
 /**
- * Demo shortcut: every OTP request accepts this one fixed code, so an agent can sign
- * in headlessly with no mail provider. Active in production too — this deployment is
- * a demo, not a real store.
+ * Two ways in, and email OTP is deliberately not one of them:
  *
- * This means anyone who can reach the server can sign in as any email address, and
- * therefore read and write that account's wishlist and orders. Do not put real user
- * data behind it. Set DEMO_OTP=off to fall back to random codes, which then go
- * nowhere until sendVerificationOTP below is pointed at a mail provider.
+ *   Browsers — email and password (the /login and /signup forms).
+ *   Agents   — X-Agent-Key plus X-Customer-Ref; see lib/api/agent.ts.
+ *
+ * The email-OTP plugin used to exist so an API client could get a bearer token with no
+ * mail provider, via a fixed DEMO_OTP code. That made every account reachable by anyone
+ * who could reach the server, and the agent path replaced the only thing it was for, so
+ * both the plugin and DEMO_OTP are gone. Reintroducing passwordless login means wiring
+ * a real mail provider, not a fixed code.
  */
-const configuredOTP = process.env.DEMO_OTP ?? "000000"
-export const DEMO_OTP = configuredOTP === "off" ? null : configuredOTP
-
-if (DEMO_OTP && process.env.NODE_ENV === "production") {
-  console.warn(`[auth] DEMO MODE — every OTP is "${DEMO_OTP}". Anyone can sign in as any email address.`)
-}
-
 export const auth = betterAuth({
   database: pool,
   baseURL:
@@ -51,16 +46,6 @@ export const auth = betterAuth({
     // Lets API clients send the session token as `Authorization: Bearer <token>`
     // instead of a cookie. The website keeps using cookies.
     bearer(),
-    emailOTP({
-      otpLength: 6,
-      expiresIn: 60 * 10,
-      // A first-time email signs up and signs in at once — no separate registration.
-      ...(DEMO_OTP ? { generateOTP: () => DEMO_OTP } : {}),
-      async sendVerificationOTP({ email, otp, type }) {
-        // No mail provider is configured. Swap this body for a real send when there is one.
-        console.log(`[auth] OTP for ${email} (${type}): ${otp}`)
-      },
-    }),
   ],
   ...(process.env.NODE_ENV === "development"
     ? {

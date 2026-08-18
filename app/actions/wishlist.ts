@@ -1,9 +1,8 @@
 "use server"
 
 import { and, eq } from "drizzle-orm"
-import { headers } from "next/headers"
-import { auth } from "@/lib/auth"
 import { db } from "@/lib/db"
+import { resolveSubject } from "@/lib/api/subject"
 import { wishlistItem } from "@/lib/db/schema"
 import { getProduct } from "@/lib/shopify/products"
 import type { Product } from "@/lib/shopify/types"
@@ -14,12 +13,13 @@ export async function getWishlistProducts(handles: string[]): Promise<Product[]>
   return results.filter((p): p is Product => p !== null)
 }
 
+/** The agent's asserted shopper, or the signed-in user. Null when neither is present. */
 async function getUserId() {
-  const session = await auth.api.getSession({ headers: await headers() })
-  return session?.user?.id ?? null
+  const subject = await resolveSubject()
+  return subject?.userId ?? null
 }
 
-/** Returns the server-side wishlist handles for the logged-in user, or null if not signed in. */
+/** Returns the server-side wishlist handles for the resolved user, or null if there is none. */
 export async function getServerWishlist(): Promise<string[] | null> {
   const userId = await getUserId()
   if (!userId) return null

@@ -1,9 +1,10 @@
 import { getServerWishlist, removeFromServerWishlist } from "@/app/actions/wishlist"
-import { handle as withErrors, json, requireUser } from "@/lib/api/http"
+import { handle as withErrors, json } from "@/lib/api/http"
+import { requireSubject } from "@/lib/api/subject"
 
 export async function DELETE(request: Request, { params }: { params: Promise<{ handle: string }> }) {
   return withErrors(request, async () => {
-    await requireUser()
+    await requireSubject()
     const { handle } = await params
 
     await removeFromServerWishlist(handle)

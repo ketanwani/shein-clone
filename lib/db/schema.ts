@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, boolean, serial, integer, numeric } from "drizzle-orm/pg-core"
+import { pgTable, text, timestamp, boolean, serial, integer, numeric, primaryKey } from "drizzle-orm/pg-core"
 
 // --- Better Auth required tables -------------------------------------------
 // Column names are camelCase to match Better Auth's defaults. Do not rename.
@@ -62,6 +62,43 @@ export const wishlistItem = pgTable("wishlist_item", {
   productHandle: text("productHandle").notNull(),
   createdAt: timestamp("createdAt").notNull().defaultNow(),
 })
+
+// The signed-in user's active Shopify cart. Lets API clients work the bag with only
+// a bearer token: no cookie, and the bag survives losing one. Anonymous callers still
+// fall back to the cartId cookie.
+export const userCart = pgTable("user_cart", {
+  userId: text("userId").primaryKey(),
+  cartId: text("cartId").notNull(),
+  updatedAt: timestamp("updatedAt").notNull().defaultNow(),
+})
+
+// Shoppers the agent acts for. The agent asserts an opaque, conversation-scoped ref
+// (X-Customer-Ref) and we auto-provision a user row behind it on first sight, so the
+// bag, wishlist and orders key off userId exactly as they do for a browser session.
+//
+// `email` is contact data only. It is deliberately NOT unique and never used to look
+// anyone up: two refs that supply the same address are two different shoppers.
+export const agentCustomer = pgTable("agent_customer", {
+  customerRef: text("customerRef").primaryKey(),
+  userId: text("userId").notNull(),
+  email: text("email"),
+  createdAt: timestamp("createdAt").notNull().defaultNow(),
+  updatedAt: timestamp("updatedAt").notNull().defaultNow(),
+})
+
+// Replay protection for POST /api/orders. Agents retry, so a repeated Idempotency-Key
+// must return the first order rather than buying twice. Scoped by userId as well as
+// key so one shopper's key can never surface another's order.
+export const orderIdempotency = pgTable(
+  "order_idempotency",
+  {
+    userId: text("userId").notNull(),
+    key: text("key").notNull(),
+    orderNumber: text("orderNumber").notNull(),
+    createdAt: timestamp("createdAt").notNull().defaultNow(),
+  },
+  (table) => [primaryKey({ columns: [table.userId, table.key] })],
+)
 
 // Orders: one row per placed order. Scoped by userId.
 export const order = pgTable("order", {

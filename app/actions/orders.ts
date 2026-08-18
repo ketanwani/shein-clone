@@ -1,10 +1,9 @@
 "use server"
 
-import { headers } from "next/headers"
 import { and, desc, eq } from "drizzle-orm"
-import { auth } from "@/lib/auth"
 import { db } from "@/lib/db"
-import { order, orderItem } from "@/lib/db/schema"
+import { requireSubject } from "@/lib/api/subject"
+import { order, orderIdempotency, orderItem } from "@/lib/db/schema"
 import { getCartAction, clearCartAction } from "@/app/actions/cart"
 
 const TEST_CARD = "4242424242424242"
@@ -13,10 +12,20 @@ const FLAT_SHIPPING = 3.99
 const TAX_RATE = 0.08
 const MAX_QTY_PER_LINE = 20
 
+/** The agent's asserted shopper, or the signed-in user. Throws 401 when neither. */
 async function getUserId() {
-  const session = await auth.api.getSession({ headers: await headers() })
-  if (!session?.user) throw new Error("Unauthorized")
-  return { id: session.user.id, email: session.user.email }
+  const subject = await requireSubject()
+  return { id: subject.userId, email: subject.email }
+}
+
+/** The order a previous call already created under this key, if there was one. */
+async function replayedOrderNumber(userId: string, key: string): Promise<string | null> {
+  const [found] = await db
+    .select({ orderNumber: orderIdempotency.orderNumber })
+    .from(orderIdempotency)
+    .where(and(eq(orderIdempotency.userId, userId), eq(orderIdempotency.key, key)))
+    .limit(1)
+  return found?.orderNumber ?? null
 }
 
 export type PlaceOrderInput = {
@@ -32,11 +41,28 @@ export type PlaceOrderInput = {
 }
 
 export type PlaceOrderResult =
-  | { ok: true; orderNumber: string }
+  | { ok: true; orderNumber: string; replayed: boolean }
   | { ok: false; error: string }
 
-export async function placeOrderAction(input: PlaceOrderInput): Promise<PlaceOrderResult> {
+/**
+ * Places an order from the subject's bag.
+ *
+ * `idempotencyKey` makes retries safe: agents retry on timeout, and without this a
+ * second attempt would buy the same bag twice. The key is reserved before the order is
+ * written, so a concurrent duplicate loses the race and replays the winner instead of
+ * creating its own order. Validation failures happen before the reservation, so a
+ * declined card does not burn the key.
+ */
+export async function placeOrderAction(
+  input: PlaceOrderInput,
+  idempotencyKey?: string | null,
+): Promise<PlaceOrderResult> {
   const user = await getUserId()
+
+  if (idempotencyKey) {
+    const previous = await replayedOrderNumber(user.id, idempotencyKey)
+    if (previous) return { ok: true, orderNumber: previous, replayed: true }
+  }
 
   // Basic required-field validation
   const required: (keyof PlaceOrderInput)[] = ["email", "name", "address", "city", "zip", "country"]
@@ -95,10 +121,58 @@ export async function placeOrderAction(input: PlaceOrderInput): Promise<PlaceOrd
 
   const orderNumber = `GLW-${Date.now().toString().slice(-6)}${Math.floor(Math.random() * 90 + 10)}`
 
+  // Claim the key before writing anything. If a concurrent duplicate already claimed it,
+  // that call owns the order and this one becomes a replay of it.
+  if (idempotencyKey) {
+    await db
+      .insert(orderIdempotency)
+      .values({ userId: user.id, key: idempotencyKey, orderNumber })
+      .onConflictDoNothing()
+
+    const claimed = await replayedOrderNumber(user.id, idempotencyKey)
+    if (claimed && claimed !== orderNumber) return { ok: true, orderNumber: claimed, replayed: true }
+  }
+
+  try {
+    return await writeOrder(user.id, orderNumber, input, { items, subtotal, shipping, tax, total, currency, digits })
+  } catch (err) {
+    // Do not strand the key on a failed write — the agent must be able to retry.
+    if (idempotencyKey) {
+      await db
+        .delete(orderIdempotency)
+        .where(and(eq(orderIdempotency.userId, user.id), eq(orderIdempotency.key, idempotencyKey)))
+    }
+    throw err
+  }
+}
+
+type OrderTotals = {
+  items: {
+    title: string
+    variantTitle: string | null
+    quantity: number
+    price: string
+    imageUrl: string | null
+    productHandle: string
+  }[]
+  subtotal: number
+  shipping: number
+  tax: number
+  total: number
+  currency: string
+  digits: string
+}
+
+async function writeOrder(
+  userId: string,
+  orderNumber: string,
+  input: PlaceOrderInput,
+  { items, subtotal, shipping, tax, total, currency, digits }: OrderTotals,
+): Promise<PlaceOrderResult> {
   const [created] = await db
     .insert(order)
     .values({
-      userId: user.id,
+      userId,
       orderNumber,
       email: input.email.trim(),
       shippingName: input.name.trim(),
@@ -121,7 +195,7 @@ export async function placeOrderAction(input: PlaceOrderInput): Promise<PlaceOrd
   // Empty the bag after a successful order.
   await clearCartAction()
 
-  return { ok: true, orderNumber }
+  return { ok: true, orderNumber, replayed: false }
 }
 
 export async function getOrdersAction() {
