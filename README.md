@@ -85,14 +85,47 @@ A few rules the server enforces:
 
 - The key is compared in **constant time**, and is never logged, echoed, or included in
   an error message.
-- `X-Customer-Ref` is required on user-scoped routes and treated as an opaque string. A
-  missing ref is a `400`; sending a ref without a valid key is a `401`, never an
-  anonymous fallback.
-- `X-Customer-Email` is optional **contact data only**. It is never an identity, so two
-  refs that supply the same address remain two separate shoppers. An email can never be
-  used to read anyone's data.
+- `X-Customer-Ref` is required on user-scoped routes and treated as an opaque string —
+  never parsed, and never an email. A missing ref is a `400`; sending a ref without a
+  valid key is a `401`, never an anonymous fallback.
+- **Email is never a lookup key.** It is write-only contact data on the profile and the
+  order. There is no way to reach a customer, an address book or an order history by
+  supplying an email, so two refs that give the same address stay two separate shoppers.
+  A shopper who claims someone else's email gets their own empty profile.
+- Address ids are scoped to their owner. One belonging to another customer ref returns
+  `404` — never `200`, and never a fall-through to that person's address.
 - An unseen `X-Customer-Ref` is provisioned automatically on first use — no password, no
   OTP, no email verification.
+
+### Knowing what to ask the shopper
+
+`GET /api/customer` tells the agent what it still needs to collect. It **always returns
+200**, including for a customer ref nobody has seen before — an unknown shopper is a
+normal state on the happy path, and a 4xx there would read to the model as a broken tool
+and make it apologise or abandon the purchase.
+
+```jsonc
+// new shopper
+{ "customer": { "status": "new",
+                "missing": ["email", "name", "shipping_address"],
+                "addresses": [] } }
+
+// returning shopper
+{ "customer": { "status": "known", "email": "ada@example.com", "name": "Ada Lovelace",
+                "missing": [],
+                "addresses": [
+                  { "id": "addr_9f2c…", "label": "Home", "line1": "12 Analytical Way",
+                    "city": "London", "zip": "EC1A 1AA", "country": "GB",
+                    "is_default": true }
+                ] } }
+```
+
+`missing` is an array of **field names, not prose** — the agent composes its own
+question. Every address has a stable `id`, so when the shopper says "send it to work"
+there is something concrete to send back as `address_id`.
+
+**Do not front-load this.** Browsing, search and adding to the bag need no profile data
+at all. Ask at checkout, or you have replaced a login wall with an interrogation.
 
 ### Worked example: a full purchase with headers only
 
@@ -103,6 +136,7 @@ BASE=http://localhost:3000
 export AGENT_KEY='dev-agent-key'             # locally; the real secret anywhere shared
 export CUSTOMER_REF='ig_17841400000000000'   # opaque + stable, one per shopper
 AUTH=(-H "X-Agent-Key: $AGENT_KEY" -H "X-Customer-Ref: $CUSTOMER_REF")
+JSON=(-H 'Content-Type: application/json')
 
 # 1. Find something to buy (catalogue reads are public — no headers needed).
 curl -s "$BASE/api/search?q=hoodie&limit=5" | jq -r '.products[] | "\(.handle)  \(.title)"'
@@ -111,31 +145,44 @@ curl -s "$BASE/api/search?q=hoodie&limit=5" | jq -r '.products[] | "\(.handle)  
 VARIANT=$(curl -s "$BASE/api/products/soft-cotton-hoodie-in-ocean" \
   | jq -r '.product.variants[0].id')
 
-# 3. Add it to this shopper's bag.
-curl -s "${AUTH[@]}" -H 'Content-Type: application/json' \
-  -X POST "$BASE/api/cart/lines" \
+# 3. Add it to this shopper's bag. No profile needed to get this far.
+curl -s "${AUTH[@]}" "${JSON[@]}" -X POST "$BASE/api/cart/lines" \
   -d "{\"merchandiseId\":\"$VARIANT\",\"quantity\":2}" | jq '.cart.cost.subtotalAmount'
 
 # 4. Confirm the bag — a separate request, and the items are still there.
 curl -s "${AUTH[@]}" "$BASE/api/cart" | jq '.cart.lines[] | {title: .merchandise.product.title, quantity}'
 
-# 5. Check out. Idempotency-Key makes the retry safe; totals are recomputed
-#    server-side, so no amounts are accepted from the client.
-curl -s "${AUTH[@]}" -H 'Content-Type: application/json' \
-  -H "Idempotency-Key: checkout-$CUSTOMER_REF-001" \
+# 5. Now, at checkout, find out what to ask for.
+curl -s "${AUTH[@]}" "$BASE/api/customer" | jq '.customer.missing, .customer.addresses'
+
+# 6a. FIRST TIME — send a full inline address. It is saved to the address book,
+#     and its id comes back on the order.
+curl -s "${AUTH[@]}" "${JSON[@]}" -H "Idempotency-Key: checkout-$CUSTOMER_REF-001" \
   -X POST "$BASE/api/orders" \
-  -d '{"email":"shopper@example.com","name":"Ada Lovelace","address":"12 Analytical Way",
+  -d '{"email":"ada@example.com","name":"Ada Lovelace","address":"12 Analytical Way",
        "city":"London","zip":"EC1A 1AA","country":"GB",
        "cardNumber":"4242424242424242","expiry":"12/29","cvc":"123"}' \
-  | jq '.order.orderNumber, .order.total'
+  | jq '{order: .order.orderNumber, total: .order.total, address: .order.addressId}'
 
-# 6. Verify it was recorded.
+# 6b. NEXT TIME — the profile already has email and name, so an address id and a
+#     card are the whole request.
+ADDRESS_ID=$(curl -s "${AUTH[@]}" "$BASE/api/customer" | jq -r '.customer.addresses[0].id')
+curl -s "${AUTH[@]}" "${JSON[@]}" -H "Idempotency-Key: checkout-$CUSTOMER_REF-002" \
+  -X POST "$BASE/api/orders" \
+  -d "{\"address_id\":\"$ADDRESS_ID\",
+       \"cardNumber\":\"4242424242424242\",\"expiry\":\"12/29\",\"cvc\":\"123\"}" \
+  | jq '.order.orderNumber'
+
+# 7. Verify.
 curl -s "${AUTH[@]}" "$BASE/api/orders" | jq '.count'
 ```
 
-Replaying step 5 with the same `Idempotency-Key` returns the *same* order and responds
-`200` instead of `201` — it does not buy the bag twice. A declined card or an empty bag
-does not consume the key, so the agent can fix the input and retry with it.
+Replaying a checkout with the same `Idempotency-Key` returns the *same* order and
+responds `200` instead of `201` — it does not buy the bag twice. A declined card or an
+empty bag does not consume the key, so the agent can fix the input and retry with it.
+
+An `address_id` belonging to a different customer ref returns **404**. It never falls
+through to an inline address, and never ships to the other shopper.
 
 Payment is simulated: only the test card `4242424242424242` is accepted.
 

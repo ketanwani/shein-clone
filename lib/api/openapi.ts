@@ -20,6 +20,8 @@ const AGENT_REQUIREMENT = { agentKey: [], customerRef: [] }
 function security(endpoint: ApiEndpoint) {
   // Better Auth owns these and does not read the agent headers.
   if (endpoint.auth === "bearer") return [{ bearerAuth: [] }]
+  // Agent-only: no browser equivalent, so no session alternative.
+  if (endpoint.auth === "agent") return [AGENT_REQUIREMENT]
   // Agent headers or a signed-in session.
   if (endpoint.auth === "session") return [AGENT_REQUIREMENT, { bearerAuth: [] }]
   // Same, plus the anonymous browser case — {} means "no credentials also works".

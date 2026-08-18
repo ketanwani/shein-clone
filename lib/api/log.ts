@@ -96,8 +96,18 @@ async function previewBody(response: Response) {
   try {
     const text = await response.clone().text()
     if (!text) return "(empty body)"
-    return text.length > PREVIEW_CHARS ? `${text.slice(0, PREVIEW_CHARS)}… (${text.length} chars)` : text
+    const safe = maskEmails(text)
+    return safe.length > PREVIEW_CHARS ? `${safe.slice(0, PREVIEW_CHARS)}… (${safe.length} chars)` : safe
   } catch {
     return "(unreadable body)"
   }
+}
+
+// Customer profiles and orders carry the shopper's address, and logs outlive the
+// request. Keep enough to correlate a report with a call, not enough to be a mailing
+// list: ada@example.com -> a***@example.com.
+const EMAIL = /\b([A-Za-z0-9._%+-])[A-Za-z0-9._%+-]*(@[A-Za-z0-9.-]+\.[A-Za-z]{2,})/g
+
+export function maskEmails(text: string) {
+  return text.replace(EMAIL, (_match, first: string, domain: string) => `${first}***${domain}`)
 }

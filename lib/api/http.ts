@@ -124,6 +124,14 @@ export function readString(body: Record<string, unknown>, field: string): string
   return value
 }
 
+/** Reads a field that may be absent. Present-but-not-a-string is still an error. */
+export function readOptionalString(body: Record<string, unknown>, field: string): string | null {
+  const value = body[field]
+  if (value === undefined || value === null) return null
+  if (typeof value !== "string") throw badRequest(`"${field}" must be a string when present.`)
+  return value.trim() || null
+}
+
 export function readInteger(
   body: Record<string, unknown>,
   field: string,

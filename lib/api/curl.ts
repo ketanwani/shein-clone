@@ -29,7 +29,7 @@ export function curlFor(endpoint: ApiEndpoint, baseUrl = DEFAULT_BASE_URL) {
 
   // These docs are agent-facing, so show the stateless header path. An agent has no
   // cookie jar and cannot complete an OTP flow, which rules out both browser options.
-  if (endpoint.auth === "session" || endpoint.auth === "cart") {
+  if (endpoint.auth === "session" || endpoint.auth === "cart" || endpoint.auth === "agent") {
     parts.push(`-H "X-Agent-Key: $AGENT_KEY"`)
     parts.push(`-H "X-Customer-Ref: $CUSTOMER_REF"`)
   }

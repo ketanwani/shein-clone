@@ -3,6 +3,14 @@
 import { and, desc, eq } from "drizzle-orm"
 import { db } from "@/lib/db"
 import { requireSubject } from "@/lib/api/subject"
+import {
+  addressNotFound,
+  findAddress,
+  getProfile,
+  saveAddressOnce,
+  updateProfile,
+  type AddressPayload,
+} from "@/lib/api/customer"
 import { order, orderIdempotency, orderItem } from "@/lib/db/schema"
 import { getCartAction, clearCartAction } from "@/app/actions/cart"
 
@@ -29,12 +37,16 @@ async function replayedOrderNumber(userId: string, key: string): Promise<string 
 }
 
 export type PlaceOrderInput = {
-  email: string
-  name: string
-  address: string
-  city: string
-  zip: string
-  country: string
+  /** Optional when the shopper's profile already holds them. */
+  email?: string | null
+  name?: string | null
+  /** Inline address. Ignored when addressId is supplied. */
+  address?: string | null
+  city?: string | null
+  zip?: string | null
+  country?: string | null
+  /** An id from the shopper's own address book. Wins over an inline address. */
+  addressId?: string | null
   cardNumber: string
   expiry: string
   cvc: string
@@ -43,6 +55,51 @@ export type PlaceOrderInput = {
 export type PlaceOrderResult =
   | { ok: true; orderNumber: string; replayed: boolean }
   | { ok: false; error: string }
+
+/**
+ * Settles where the order ships to, and who it is for.
+ *
+ * `addressId` wins over an inline address when both are sent. An id that is not this
+ * customer's throws 404 rather than silently falling through to an inline address — or,
+ * far worse, to somebody else's doorstep. An inline address is saved to the book so the
+ * shopper does not have to dictate it again, and its id comes back on the order.
+ *
+ * Contact details fall back to the stored profile, which is what lets a returning
+ * shopper check out with nothing but an address id and a card.
+ */
+type Destination = { email: string; name: string; address: AddressPayload }
+
+async function resolveDestination(
+  userId: string,
+  input: PlaceOrderInput,
+): Promise<{ ok: true; destination: Destination } | { ok: false; missing: string[] }> {
+  const profile = await getProfile(userId)
+  const email = input.email?.trim() || profile.email
+  const name = input.name?.trim() || profile.name
+
+  const missing: string[] = []
+  if (!email) missing.push("email")
+  if (!name) missing.push("name")
+
+  let address: AddressPayload | null = null
+
+  if (input.addressId) {
+    address = await findAddress(userId, input.addressId)
+    if (!address) throw addressNotFound(input.addressId)
+  } else if (input.address?.trim() && input.city?.trim() && input.zip?.trim() && input.country?.trim()) {
+    address = await saveAddressOnce(userId, {
+      line1: input.address,
+      city: input.city,
+      zip: input.zip,
+      country: input.country,
+    })
+  } else {
+    missing.push("shipping_address")
+  }
+
+  if (!email || !name || !address) return { ok: false, missing }
+  return { ok: true, destination: { email, name, address } }
+}
 
 /**
  * Places an order from the subject's bag.
@@ -64,11 +121,12 @@ export async function placeOrderAction(
     if (previous) return { ok: true, orderNumber: previous, replayed: true }
   }
 
-  // Basic required-field validation
-  const required: (keyof PlaceOrderInput)[] = ["email", "name", "address", "city", "zip", "country"]
-  for (const field of required) {
-    if (!input[field]?.trim()) return { ok: false, error: "Please fill in all shipping fields." }
+  // Throws 404 for an address id this customer does not own; never falls through.
+  const resolved = await resolveDestination(user.id, input)
+  if (!resolved.ok) {
+    return { ok: false, error: `Still needed before checkout: ${resolved.missing.join(", ")}.` }
   }
+  const destination = resolved.destination
 
   // Simulated payment: only the Stripe-style test card succeeds.
   const digits = input.cardNumber.replace(/\D/g, "")
@@ -133,8 +191,19 @@ export async function placeOrderAction(
     if (claimed && claimed !== orderNumber) return { ok: true, orderNumber: claimed, replayed: true }
   }
 
+  // Remember what the shopper told us, so a returning visit only needs an address id.
+  await updateProfile(user.id, { email: destination.email, name: destination.name })
+
   try {
-    return await writeOrder(user.id, orderNumber, input, { items, subtotal, shipping, tax, total, currency, digits })
+    return await writeOrder(user.id, orderNumber, destination, {
+      items,
+      subtotal,
+      shipping,
+      tax,
+      total,
+      currency,
+      digits,
+    })
   } catch (err) {
     // Do not strand the key on a failed write — the agent must be able to retry.
     if (idempotencyKey) {
@@ -166,7 +235,7 @@ type OrderTotals = {
 async function writeOrder(
   userId: string,
   orderNumber: string,
-  input: PlaceOrderInput,
+  { email, name, address }: Destination,
   { items, subtotal, shipping, tax, total, currency, digits }: OrderTotals,
 ): Promise<PlaceOrderResult> {
   const [created] = await db
@@ -174,12 +243,13 @@ async function writeOrder(
     .values({
       userId,
       orderNumber,
-      email: input.email.trim(),
-      shippingName: input.name.trim(),
-      shippingAddress: input.address.trim(),
-      shippingCity: input.city.trim(),
-      shippingZip: input.zip.trim(),
-      shippingCountry: input.country.trim(),
+      email,
+      shippingName: name,
+      shippingAddress: address.line1,
+      shippingCity: address.city,
+      shippingZip: address.zip,
+      shippingCountry: address.country,
+      addressId: address.id,
       subtotal: subtotal.toFixed(2),
       shipping: shipping.toFixed(2),
       tax: tax.toFixed(2),

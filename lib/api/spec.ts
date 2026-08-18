@@ -12,8 +12,10 @@
  * "session" — agent headers or a bearer token; there is no anonymous form.
  * "bearer"  — a bearer token only. Better Auth owns these routes and knows nothing
  *             about the agent headers, so advertising the agent path there would lie.
+ * "agent"   — agent headers only. The customer surface has no browser equivalent; the
+ *             website manages the same data through the account pages.
  */
-export type ApiAuth = "public" | "cart" | "session" | "bearer"
+export type ApiAuth = "public" | "cart" | "session" | "bearer" | "agent"
 
 export type JsonSchema = Record<string, unknown>
 
@@ -74,6 +76,7 @@ export const AUTH_LABELS: Record<ApiAuth, string> = {
   cart: "Agent headers, a bearer token, or the anonymous cart cookie",
   session: "Agent headers, or a bearer token",
   bearer: "Bearer token or session cookie — no agent path",
+  agent: "Agent headers — X-Agent-Key and X-Customer-Ref",
 }
 
 /** Documented on every endpoint an agent can call, so the two headers are never implicit. */
@@ -196,9 +199,37 @@ export const SCHEMAS: Record<string, JsonSchema> = {
     currency: str(),
     cardLast4: nullable(str()),
     status: str("\"paid\""),
+    addressId: nullable(str("The address book entry this shipped to, whether picked with address_id or saved from an inline address.")),
     createdAt: str("ISO 8601 timestamp"),
     items: arrayOf(ref("OrderItem")),
   }),
+  Address: obj(
+    {
+      id: str("Stable, opaque. Quote this back as address_id at checkout."),
+      label: str("Free text in the shopper's own words. Absent when they did not give one."),
+      line1: str(),
+      city: str(),
+      zip: str(),
+      country: str(),
+      is_default: bool(),
+    },
+    ["id", "line1", "city", "zip", "country", "is_default"],
+  ),
+  Customer: obj(
+    {
+      status: { type: "string", enum: ["new", "known"], description: '"new" means nothing is on file yet.' },
+      email: str("Contact data only. Absent until the shopper gives one."),
+      name: str("Absent until the shopper gives one."),
+      missing: {
+        type: "array",
+        items: { type: "string", enum: ["email", "name", "shipping_address"] },
+        description:
+          "Field names the agent still needs to collect before checkout. Machine-readable on purpose — compose your own question from these, do not expect prose.",
+      },
+      addresses: arrayOf(ref("Address")),
+    },
+    ["status", "missing", "addresses"],
+  ),
   Error: obj(
     {
       error: obj(
@@ -313,6 +344,7 @@ const ORDER_EXAMPLE = {
   currency: "USD",
   cardLast4: "4242",
   status: "paid",
+  addressId: "addr_9f2c41a8b7e04d13",
   createdAt: "2026-08-17T12:04:11.512Z",
   items: [
     {
@@ -326,6 +358,16 @@ const ORDER_EXAMPLE = {
       productHandle: "ribbed-knit-mini-dress",
     },
   ],
+}
+
+const ADDRESS_EXAMPLE = {
+  id: "addr_9f2c41a8b7e04d13",
+  label: "Home",
+  line1: "12 Analytical Way",
+  city: "London",
+  zip: "EC1A 1AA",
+  country: "GB",
+  is_default: true,
 }
 
 const listResponse = (extra?: Record<string, JsonSchema>): JsonSchema =>
@@ -343,6 +385,22 @@ const UNAUTHORIZED = errorResponse(401, "No valid session cookie was sent.", {
     code: "unauthorized",
     message: "This endpoint requires a signed-in session.",
     hint: "POST /api/auth/sign-in/email with {email, password} and send the returned cookie on this request.",
+  },
+})
+
+const AGENT_UNAUTHORIZED = errorResponse(401, "Missing or wrong X-Agent-Key, or agent access is switched off on this deployment.", {
+  error: {
+    code: "unauthorized",
+    message: "Invalid or missing X-Agent-Key.",
+    hint: "Send X-Agent-Key with the shared secret issued by GLOWA, plus X-Customer-Ref identifying the shopper.",
+  },
+})
+
+const CUSTOMER_REF_REQUIRED = errorResponse(400, "The agent key checked out but no shopper was named.", {
+  error: {
+    code: "bad_request",
+    message: "X-Customer-Ref is required on this endpoint.",
+    hint: "Send X-Customer-Ref with a stable, opaque id for this shopper (e.g. the Instagram-scoped user id). An email address is not accepted as identity.",
   },
 })
 
@@ -661,6 +719,112 @@ export const API_GROUPS: ApiGroup[] = [
     ],
   },
   {
+    name: "Customer",
+    slug: "customer",
+    description:
+      "The shopper's contact details and address book, so the agent can find out what it still needs to ask for before checkout — and, on a return visit, ask for nothing at all. Everything here is keyed by `X-Customer-Ref`. **Email is never a lookup key**: it is contact data written onto the profile and the order, and two refs that give the same address stay two separate shoppers with separate address books. Do not front-load any of this — browsing, search and adding to the bag need no profile data, so ask only at checkout.",
+    endpoints: [
+      {
+        method: "GET",
+        path: "/api/customer",
+        summary: "What do we still need to ask for?",
+        description:
+          "The shopper's profile and saved addresses. **Always 200**, including for a customer ref that has never been seen — an unknown shopper is a normal state on the happy path, not an error, so there is no 404 to handle. Read `missing` to decide what to ask; read `addresses` to offer a choice.",
+        auth: "agent",
+        params: AGENT_HEADERS,
+        responses: [
+          {
+            status: 200,
+            description: "The shopper, known or not.",
+            schema: obj({ customer: ref("Customer") }),
+            example: { customer: { status: "new", missing: ["email", "name", "shipping_address"], addresses: [] } },
+            exampleNote:
+              "A known shopper instead returns status \"known\", their email and name, an empty missing array, and their saved addresses.",
+          },
+          AGENT_UNAUTHORIZED,
+          CUSTOMER_REF_REQUIRED,
+          DATABASE_UNAVAILABLE,
+        ],
+        notes: [
+          "`missing` is an array of field names, never prose — compose the question yourself rather than relaying a sentence.",
+          "Every address carries a stable `id`. When the shopper says \"send it to work\", send that id back as `address_id` on POST /api/orders.",
+          "`label` is free text and is omitted rather than invented, so do not rely on it being present.",
+        ],
+      },
+      {
+        method: "PATCH",
+        path: "/api/customer",
+        summary: "Record contact details",
+        description:
+          "Stores an email or name the shopper has given. Both are optional; send whichever you just learned. Writing an email that matches another customer changes nothing about who this customer is — refs never merge.",
+        auth: "agent",
+        params: AGENT_HEADERS,
+        body: [
+          { name: "email", type: "string", description: "Contact address for orders.", example: "ada@example.com" },
+          { name: "name", type: "string", description: "Shipping recipient.", example: "Ada Lovelace" },
+        ],
+        responses: [
+          {
+            status: 200,
+            description: "The updated customer, same shape as GET.",
+            schema: obj({ customer: ref("Customer") }),
+            example: {
+              customer: { status: "known", email: "ada@example.com", name: "Ada Lovelace", missing: ["shipping_address"], addresses: [] },
+            },
+          },
+          AGENT_UNAUTHORIZED,
+          CUSTOMER_REF_REQUIRED,
+          DATABASE_UNAVAILABLE,
+        ],
+      },
+      {
+        method: "GET",
+        path: "/api/customer/addresses",
+        summary: "List saved addresses",
+        description: "The shopper's address book. The same array GET /api/customer returns, on its own.",
+        auth: "agent",
+        params: AGENT_HEADERS,
+        responses: [
+          {
+            status: 200,
+            description: "Saved addresses, oldest first.",
+            schema: obj({ count: int(), addresses: arrayOf(ref("Address")) }),
+            example: { count: 1, addresses: [ADDRESS_EXAMPLE] },
+          },
+          AGENT_UNAUTHORIZED,
+          CUSTOMER_REF_REQUIRED,
+          DATABASE_UNAVAILABLE,
+        ],
+      },
+      {
+        method: "POST",
+        path: "/api/customer/addresses",
+        summary: "Save an address",
+        description:
+          "Adds an address to the book and returns it with the id to quote at checkout. The shopper's first address becomes their default automatically. Checkout also saves an inline address for you, so this is only needed when the shopper wants one stored ahead of time.",
+        auth: "agent",
+        params: AGENT_HEADERS,
+        body: [
+          { name: "line1", type: "string", required: true, description: "Street address.", example: "12 Analytical Way" },
+          { name: "city", type: "string", required: true, description: "City.", example: "London" },
+          { name: "zip", type: "string", required: true, description: "Postal code.", example: "EC1A 1AA" },
+          { name: "country", type: "string", required: true, description: "Country.", example: "GB" },
+          { name: "label", type: "string", description: "The shopper's own words, e.g. \"Home\". Omit rather than inventing one.", example: "Home" },
+          { name: "is_default", type: "string", description: "Boolean. Makes this the default, demoting any previous one.", example: "true" },
+        ],
+        responses: [
+          { status: 201, description: "Saved.", schema: obj({ address: ref("Address") }), example: { address: ADDRESS_EXAMPLE } },
+          errorResponse(400, "Missing a required address field.", {
+            error: { code: "bad_request", message: '"line1" is required and must be a non-empty string.' },
+          }),
+          AGENT_UNAUTHORIZED,
+          CUSTOMER_REF_REQUIRED,
+          DATABASE_UNAVAILABLE,
+        ],
+      },
+    ],
+  },
+  {
     name: "Cart",
     slug: "cart",
     description:
@@ -836,7 +1000,7 @@ export const API_GROUPS: ApiGroup[] = [
         path: "/api/orders",
         summary: "Place an order",
         description:
-          "Converts the shopper's current bag into an order and empties the bag. The credential identifies both the buyer and the bag, so no cookie is required. Totals are recomputed server-side from Shopify prices — subtotal, plus 3.99 shipping under a 29 subtotal, plus 8% tax — so no amounts are accepted from the client.",
+          "Converts the shopper's current bag into an order and empties the bag. The credential identifies both the buyer and the bag, so no cookie is required.\n\nShip it two ways: send `address_id` from the shopper's address book, or send a full inline address, which is saved to the book for next time and whose id comes back on the order. If both are sent, `address_id` wins. `email` and `name` fall back to the stored profile, so a returning shopper checks out with nothing but an address id and a card.\n\nTotals are recomputed server-side from Shopify prices — subtotal, plus 3.99 shipping under a 29 subtotal, plus 8% tax — so no amounts are accepted from the client.",
         auth: "session",
         params: [
           ...AGENT_HEADERS,
@@ -858,12 +1022,19 @@ export const API_GROUPS: ApiGroup[] = [
           },
         ],
         body: [
-          { name: "email", type: "string", required: true, description: "Contact email for the order.", example: "agent@example.com" },
-          { name: "name", type: "string", required: true, description: "Shipping recipient.", example: "Ada Lovelace" },
-          { name: "address", type: "string", required: true, description: "Street address.", example: "12 Analytical Way" },
-          { name: "city", type: "string", required: true, description: "City.", example: "London" },
-          { name: "zip", type: "string", required: true, description: "Postal code.", example: "EC1A 1AA" },
-          { name: "country", type: "string", required: true, description: "Country.", example: "GB" },
+          {
+            name: "address_id",
+            type: "string",
+            description:
+              "An id from this shopper's own address book (GET /api/customer). Wins over an inline address. An id belonging to anyone else returns 404 — it never ships to them.",
+            example: "addr_9f2c41a8b7e04d13",
+          },
+          { name: "email", type: "string", description: "Contact email. Optional once the profile holds one.", example: "ada@example.com" },
+          { name: "name", type: "string", description: "Shipping recipient. Optional once the profile holds one.", example: "Ada Lovelace" },
+          { name: "address", type: "string", description: "Inline street address. Required unless address_id is sent.", example: "12 Analytical Way" },
+          { name: "city", type: "string", description: "Required unless address_id is sent.", example: "London" },
+          { name: "zip", type: "string", description: "Required unless address_id is sent.", example: "EC1A 1AA" },
+          { name: "country", type: "string", description: "Required unless address_id is sent.", example: "GB" },
           { name: "cardNumber", type: "string", required: true, description: "Test card only: 4242424242424242.", example: "4242424242424242" },
           { name: "expiry", type: "string", required: true, description: "MM/YY.", example: "12/29" },
           { name: "cvc", type: "string", required: true, description: "3 or 4 digits.", example: "123" },
@@ -871,14 +1042,22 @@ export const API_GROUPS: ApiGroup[] = [
         responses: [
           { status: 200, description: "Idempotent replay — the order this key already created. No second order was placed.", schema: obj({ order: ref("Order") }), example: { order: ORDER_EXAMPLE } },
           { status: 201, description: "Order placed and the bag emptied.", schema: obj({ order: ref("Order") }), example: { order: ORDER_EXAMPLE } },
-          errorResponse(400, "Empty bag, declined card, or a missing shipping field.", {
-            error: { code: "order_rejected", message: "Card declined. Use test card 4242 4242 4242 4242." },
+          errorResponse(400, "Empty bag, declined card, or details still missing.", {
+            error: { code: "order_rejected", message: "Still needed before checkout: email, shipping_address." },
+          }),
+          errorResponse(404, "address_id does not belong to this shopper.", {
+            error: {
+              code: "not_found",
+              message: 'No address "addr_9f2c41a8b7e04d13" for this customer.',
+              hint: "Use an id from GET /api/customer, or send a full inline address instead.",
+            },
           }),
           UNAUTHORIZED,
           DATABASE_UNAVAILABLE,
         ],
         notes: [
           "The order is built from the server-side bag, not from the request body — fill the bag first with POST /api/cart/lines using the same credential.",
+          "Call GET /api/customer first: its `missing` array tells you exactly which of email, name and shipping_address you still need to ask for.",
           "Send an Idempotency-Key and retries are safe: the same key returns the first order with 200 instead of buying the bag twice.",
           "A rejected card or an empty bag does not consume the key, so the agent can fix the input and retry with it.",
         ],

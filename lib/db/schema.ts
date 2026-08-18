@@ -82,8 +82,28 @@ export const agentCustomer = pgTable("agent_customer", {
   customerRef: text("customerRef").primaryKey(),
   userId: text("userId").notNull(),
   email: text("email"),
+  name: text("name"),
   createdAt: timestamp("createdAt").notNull().defaultNow(),
   updatedAt: timestamp("updatedAt").notNull().defaultNow(),
+})
+
+// The shopper's saved shipping addresses. Scoped by userId, so an address id is only
+// ever resolvable by the customer ref that owns it — an id belonging to someone else is
+// a 404, not someone else's doorstep.
+//
+// `id` is an opaque string rather than a serial because the agent quotes it back to us
+// ("send it to work"); a guessable sequence invites a caller to try its neighbours.
+export const customerAddress = pgTable("customer_address", {
+  id: text("id").primaryKey(),
+  userId: text("userId").notNull(),
+  /** Free text, shopper's own words. Absent rather than invented. */
+  label: text("label"),
+  line1: text("line1").notNull(),
+  city: text("city").notNull(),
+  zip: text("zip").notNull(),
+  country: text("country").notNull(),
+  isDefault: boolean("isDefault").notNull().default(false),
+  createdAt: timestamp("createdAt").notNull().defaultNow(),
 })
 
 // Replay protection for POST /api/orders. Agents retry, so a repeated Idempotency-Key
@@ -118,6 +138,8 @@ export const order = pgTable("order", {
   currency: text("currency").notNull().default("USD"),
   cardLast4: text("cardLast4"),
   status: text("status").notNull().default("paid"),
+  /** The address book entry this order shipped to, whether picked or saved inline. */
+  addressId: text("addressId"),
   createdAt: timestamp("createdAt").notNull().defaultNow(),
 })
 

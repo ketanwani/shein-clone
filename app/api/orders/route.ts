@@ -1,5 +1,5 @@
 import { getOrderByNumberAction, getOrdersAction, placeOrderAction } from "@/app/actions/orders"
-import { ApiFailure, handle, json, readJsonBody, readString } from "@/lib/api/http"
+import { ApiFailure, handle, json, readJsonBody, readOptionalString, readString } from "@/lib/api/http"
 import { requireSubject } from "@/lib/api/subject"
 
 export async function GET(request: Request) {
@@ -19,14 +19,18 @@ export async function POST(request: Request) {
     await requireSubject()
     const body = await readJsonBody(request)
 
+    // Shipping details are optional here: a returning shopper sends only address_id,
+    // and email/name fall back to their stored profile. placeOrderAction reports
+    // whatever is still missing.
     const result = await placeOrderAction(
       {
-        email: readString(body, "email"),
-        name: readString(body, "name"),
-        address: readString(body, "address"),
-        city: readString(body, "city"),
-        zip: readString(body, "zip"),
-        country: readString(body, "country"),
+        email: readOptionalString(body, "email"),
+        name: readOptionalString(body, "name"),
+        address: readOptionalString(body, "address"),
+        city: readOptionalString(body, "city"),
+        zip: readOptionalString(body, "zip"),
+        country: readOptionalString(body, "country"),
+        addressId: readOptionalString(body, "address_id"),
         cardNumber: readString(body, "cardNumber"),
         expiry: readString(body, "expiry"),
         cvc: readString(body, "cvc"),

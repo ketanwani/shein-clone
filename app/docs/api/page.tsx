@@ -30,6 +30,7 @@ const AUTH_STYLES: Record<ApiEndpoint["auth"], string> = {
   cart: "bg-amber-50 text-amber-900",
   session: "bg-accent/10 text-accent",
   bearer: "bg-sky-50 text-sky-900",
+  agent: "bg-emerald-50 text-emerald-900",
 }
 
 function anchorFor(endpoint: ApiEndpoint) {
@@ -271,9 +272,10 @@ export default async function ApiDocsPage() {
                 ["GET /api/collections", "discover valid category slugs"],
                 ["GET /api/search?q=summer%20dress", "find candidate products"],
                 ["GET /api/products/{handle}", "read variants[].id — that GID is the merchandiseId"],
-                ["POST /api/cart/lines", "add to the bag, keyed by your X-Customer-Ref"],
+                ["POST /api/cart/lines", "add to the bag — no profile data needed to get this far"],
                 ["GET /api/cart", "confirm lines and totals"],
-                ["POST /api/orders", "checkout with test card 4242424242424242 and an Idempotency-Key"],
+                ["GET /api/customer", "only now: read missing[] to see what to ask for, addresses[] to offer one"],
+                ["POST /api/orders", "checkout with address_id or an inline address, plus an Idempotency-Key"],
                 ["GET /api/orders", "verify the order was recorded"],
               ].map(([call, why], index) => (
                 <li key={call} className="flex gap-3">
