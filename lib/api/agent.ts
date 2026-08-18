@@ -29,33 +29,63 @@ const AGENT_KEY_HINT =
 const CUSTOMER_REF_HINT =
   "Send X-Customer-Ref with a stable, opaque id for this shopper (e.g. the Instagram-scoped user id). An email address is not accepted as identity."
 
-/** Configured secret, or null when the agent path is switched off. */
-function configuredKey(): string | null {
-  const key = process.env.AGENT_API_KEY?.trim()
-  return key ? key : null
+const IS_PRODUCTION = process.env.NODE_ENV === "production"
+
+/**
+ * Well-known key so local development and tests work with no setup. It is deliberately
+ * NOT a fallback in production: a fixed credential published in the source would let
+ * anyone assert any customer ref against the deployed URL and read every shopper's bag,
+ * wishlist and order history — the same hole the removed DEMO_OTP code opened.
+ */
+export const DEV_AGENT_KEY = "dev-agent-key"
+
+/**
+ * Every key the server currently accepts.
+ *
+ * AGENT_API_KEY takes a comma-separated list so keys can be rotated without downtime:
+ * add the new one, move the caller across, then drop the old one. An empty list means
+ * the agent path is off.
+ */
+function configuredKeys(): string[] {
+  const configured = (process.env.AGENT_API_KEY ?? "")
+    .split(",")
+    .map((key) => key.trim())
+    .filter(Boolean)
+
+  if (configured.length > 0) return configured
+  return IS_PRODUCTION ? [] : [DEV_AGENT_KEY]
 }
 
 export function agentApiConfigured() {
-  return configuredKey() !== null
+  return configuredKeys().length > 0
 }
 
-// Fail closed and say so once at boot, rather than silently leaving agent routes open.
+// Say once at boot which way this deployment is configured, rather than leaving it to
+// be discovered through a 401.
 if (!agentApiConfigured()) {
   console.warn(
     "[agent] AGENT_API_KEY is not set — agent routes are disabled and will return 401. " +
-      "Set AGENT_API_KEY in .env.local to enable them.",
+      "Set it to one or more comma-separated secrets to enable them.",
   )
+} else if (!process.env.AGENT_API_KEY?.trim()) {
+  console.warn(`[agent] Using the development key "${DEV_AGENT_KEY}". Set AGENT_API_KEY for anything shared.`)
 }
 
 /**
  * Compares over SHA-256 digests so the comparison is constant time AND independent of
  * the secret's length — timingSafeEqual throws on a length mismatch, which would itself
  * leak how long the key is.
+ *
+ * Every candidate is checked even after one matches, so the time taken does not reveal
+ * which key in a rotation list was the hit.
  */
-function secretsMatch(candidate: string, expected: string) {
-  const a = createHash("sha256").update(candidate).digest()
-  const b = createHash("sha256").update(expected).digest()
-  return timingSafeEqual(a, b)
+function secretsMatch(candidate: string, accepted: string[]) {
+  const presented = createHash("sha256").update(candidate).digest()
+  let matched = false
+  for (const key of accepted) {
+    if (timingSafeEqual(presented, createHash("sha256").update(key).digest())) matched = true
+  }
+  return matched
 }
 
 export type AgentSubject = {
@@ -93,8 +123,8 @@ export async function assertAgentKey(): Promise<{ customerRef: string | null } |
   // request — reject it rather than falling through to the anonymous cart.
   if (presentedKey === null && !customerRef) return null
 
-  const expected = configuredKey()
-  if (!expected) {
+  const accepted = configuredKeys()
+  if (accepted.length === 0) {
     throw new ApiFailure(
       401,
       "unauthorized",
@@ -103,7 +133,7 @@ export async function assertAgentKey(): Promise<{ customerRef: string | null } |
     )
   }
 
-  if (presentedKey === null || !secretsMatch(presentedKey, expected)) {
+  if (presentedKey === null || !secretsMatch(presentedKey, accepted)) {
     throw new ApiFailure(401, "unauthorized", "Invalid or missing X-Agent-Key.", AGENT_KEY_HINT)
   }
 

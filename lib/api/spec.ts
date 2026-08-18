@@ -82,7 +82,8 @@ export const AGENT_KEY_PARAM: ApiParam = {
   in: "header",
   type: "string",
   required: true,
-  description: "Shared secret issued by GLOWA, proving the caller is the agent. Compared in constant time.",
+  description:
+    "Shared secret issued by GLOWA, proving the caller is the agent. Compared in constant time against the server's AGENT_API_KEY list, so keys can be rotated without downtime. Outside production the well-known key `dev-agent-key` also works.",
   example: "$AGENT_KEY",
 }
 

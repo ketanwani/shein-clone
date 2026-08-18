@@ -62,18 +62,23 @@ Two ways to present the same Better Auth session:
   `bearer` plugin.
 - **Agent headers** — `X-Agent-Key` plus `X-Customer-Ref`, for stateless agent calls.
 
-Agents do not sign in at all. Set `AGENT_API_KEY` in `.env.local`, then send it as
-`X-Agent-Key` alongside an opaque `X-Customer-Ref` naming the shopper:
+Agents do not sign in at all. Send `X-Agent-Key` alongside an opaque `X-Customer-Ref`
+naming the shopper. Locally this needs no setup — outside production the well-known key
+`dev-agent-key` is accepted:
 
 ```bash
-echo "AGENT_API_KEY=$(openssl rand -hex 32)" >> .env.local   # then restart the server
-
-curl -s -H "X-Agent-Key: $AGENT_KEY" -H "X-Customer-Ref: ig_17841400000000000" \
+curl -s -H "X-Agent-Key: dev-agent-key" -H "X-Customer-Ref: ig_17841400000000000" \
   localhost:3000/api/wishlist
 ```
 
-An unseen ref is provisioned automatically on first use. With `AGENT_API_KEY` unset the
-agent path is disabled and every one of those calls returns 401 — it fails closed.
+An unseen ref is provisioned automatically on first use.
+
+For anything shared, set `AGENT_API_KEY` (`openssl rand -hex 32`). It takes a
+comma-separated list so keys can be rotated with no 401 window: add the new one, move
+the caller across, then drop the old one. **In production there is no fallback** — with
+`AGENT_API_KEY` unset the agent path is disabled and every such call returns 401. That
+is deliberate: a fixed key in the source would let anyone assert any customer ref
+against the public URL.
 
 **There is no passwordless sign-in.** The email-OTP flow was removed along with its
 fixed `DEMO_OTP` code: a hardcoded code let anyone reach the server sign in as any email

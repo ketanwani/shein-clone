@@ -45,19 +45,41 @@ customer ref, and two refs can never see each other's data.
 
 ### Configuring `AGENT_API_KEY`
 
-Generate a secret and put it in `.env.local`:
+**Locally you need no setup at all.** Outside production the well-known key
+`dev-agent-key` is accepted, so the examples below work against `npm run dev`
+immediately.
+
+**Anywhere shared — including production — set the variable.** There is deliberately no
+built-in fallback in production: a fixed credential in the source would let anyone
+assert any customer ref against the public URL and read every shopper's bag, wishlist
+and order history.
 
 ```bash
-echo "AGENT_API_KEY=$(openssl rand -hex 32)" >> .env.local
+openssl rand -hex 32          # generate
 ```
 
-Restart the dev server, then give that value to the agent platform to send as
-`X-Agent-Key`. In a hosted deployment set it as an environment variable (on Vercel:
-Project → Settings → Environment Variables) rather than committing it.
+Set the result as an environment variable on the host (Vercel: Project → Settings →
+Environment Variables), then give the value to the agent platform out-of-band — a
+password manager or secret-share link, not Slack or email. Never commit it: a key in git
+history cannot really be rotated, only regretted.
 
-**The agent path fails closed.** With `AGENT_API_KEY` unset, every agent route returns
-`401` and logs a warning at startup — the routes are never left open. Browser traffic is
-unaffected either way.
+**The agent path fails closed.** In production with `AGENT_API_KEY` unset, every agent
+route returns `401` and the server logs a warning at startup — the routes are never left
+open. Browser traffic is unaffected either way.
+
+#### Rotating without downtime
+
+`AGENT_API_KEY` accepts a comma-separated list, and every listed key is valid. So a
+rotation never has a window where the agent is getting 401s:
+
+```bash
+AGENT_API_KEY=old-key,new-key   # 1. both accepted — deploy this
+                                # 2. move the caller onto new-key
+AGENT_API_KEY=new-key           # 3. retire old-key — deploy this
+```
+
+Keys are compared in constant time, and every candidate is checked even after one
+matches, so response timing does not reveal which key was the hit.
 
 A few rules the server enforces:
 
@@ -78,7 +100,7 @@ No cookie jar, no bearer token, no OTP. Note that `curl` is never given `-b`/`-c
 
 ```bash
 BASE=http://localhost:3000
-export AGENT_KEY='<the value of AGENT_API_KEY>'
+export AGENT_KEY='dev-agent-key'             # locally; the real secret anywhere shared
 export CUSTOMER_REF='ig_17841400000000000'   # opaque + stable, one per shopper
 AUTH=(-H "X-Agent-Key: $AGENT_KEY" -H "X-Customer-Ref: $CUSTOMER_REF")
 

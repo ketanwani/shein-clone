@@ -139,7 +139,7 @@ export function buildOpenApiDocument(baseUrl = DEFAULT_BASE_URL) {
           in: "header",
           name: "X-Agent-Key",
           description:
-            "Shared secret issued by GLOWA to the agent platform, proving the caller is the GLOWA agent. Static across conversations, compared in constant time, and always paired with X-Customer-Ref on user-scoped routes. Agent routes are disabled and return 401 when the server has no AGENT_API_KEY configured.",
+            "Shared secret issued by GLOWA to the agent platform, proving the caller is the GLOWA agent. Static across conversations, compared in constant time, and always paired with X-Customer-Ref on user-scoped routes. The server accepts any key in its AGENT_API_KEY list, so keys can be rotated without downtime. Outside production the well-known key `dev-agent-key` also works; in production there is no fallback and agent routes return 401 until AGENT_API_KEY is set.",
         },
         customerRef: {
           type: "apiKey",
