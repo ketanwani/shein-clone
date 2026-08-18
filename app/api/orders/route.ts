@@ -1,9 +1,10 @@
 import { getOrderByNumberAction, getOrdersAction, placeOrderAction } from "@/app/actions/orders"
-import { ApiFailure, handle, json, readJsonBody, readString, requireUser } from "@/lib/api/http"
+import { ApiFailure, handle, json, readJsonBody, readOptionalString, readString } from "@/lib/api/http"
+import { requireSubject } from "@/lib/api/subject"
 
 export async function GET(request: Request) {
   return handle(request, async () => {
-    await requireUser()
+    await requireSubject()
     const orders = await getOrdersAction()
     return json({ count: orders.length, orders })
   })
@@ -15,24 +16,32 @@ export async function GET(request: Request) {
  */
 export async function POST(request: Request) {
   return handle(request, async () => {
-    await requireUser()
+    await requireSubject()
     const body = await readJsonBody(request)
 
-    const result = await placeOrderAction({
-      email: readString(body, "email"),
-      name: readString(body, "name"),
-      address: readString(body, "address"),
-      city: readString(body, "city"),
-      zip: readString(body, "zip"),
-      country: readString(body, "country"),
-      cardNumber: readString(body, "cardNumber"),
-      expiry: readString(body, "expiry"),
-      cvc: readString(body, "cvc"),
-    })
+    // Shipping details are optional here: a returning shopper sends only address_id,
+    // and email/name fall back to their stored profile. placeOrderAction reports
+    // whatever is still missing.
+    const result = await placeOrderAction(
+      {
+        email: readOptionalString(body, "email"),
+        name: readOptionalString(body, "name"),
+        address: readOptionalString(body, "address"),
+        city: readOptionalString(body, "city"),
+        zip: readOptionalString(body, "zip"),
+        country: readOptionalString(body, "country"),
+        addressId: readOptionalString(body, "address_id"),
+        cardNumber: readString(body, "cardNumber"),
+        expiry: readString(body, "expiry"),
+        cvc: readString(body, "cvc"),
+      },
+      request.headers.get("idempotency-key")?.trim() || null,
+    )
 
     if (!result.ok) throw new ApiFailure(400, "order_rejected", result.error)
 
     const order = await getOrderByNumberAction(result.orderNumber)
-    return json({ order }, 201)
+    // 200 on a replay, 201 only when this call actually created the order.
+    return json({ order }, result.replayed ? 200 : 201)
   })
 }

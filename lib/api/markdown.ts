@@ -29,6 +29,18 @@ function endpointSection(endpoint: ApiEndpoint, baseUrl: string) {
 
   const pathParams = (endpoint.params ?? []).filter((p) => p.in === "path")
   const queryParams = (endpoint.params ?? []).filter((p) => p.in === "query")
+  const headerParams = (endpoint.params ?? []).filter((p) => p.in === "header")
+
+  if (headerParams.length > 0) {
+    out.push("Headers:")
+    out.push(
+      [
+        "| name | required | description |",
+        "| --- | --- | --- |",
+        ...headerParams.map((p) => `| \`${p.name}\` | ${p.required ? "yes" : "no"} | ${paramDescription(p)} |`),
+      ].join("\n"),
+    )
+  }
 
   // Header and rows must stay in one block — a blank line between them breaks the table.
   if (pathParams.length > 0) {
@@ -115,7 +127,7 @@ export function buildMarkdown(baseUrl = DEFAULT_BASE_URL) {
       "| status | meaning |",
       "| --- | --- |",
       "| 400 | Malformed input — fix the request before retrying. |",
-      "| 401 | No valid session cookie. Sign in, then retry. |",
+      "| 401 | Missing or wrong `X-Agent-Key`, or no valid session. Fix the credential — retrying as-is will not help. |",
       "| 404 | No such product, collection, or order. |",
       "| 503 | Server is missing Shopify or Postgres configuration. Retrying will not help until it is set up. |",
     ].join("\n"),
@@ -124,43 +136,51 @@ export function buildMarkdown(baseUrl = DEFAULT_BASE_URL) {
   sections.push("## Authentication")
   sections.push(
     [
-      "Three access levels:",
+      "**Agents: two headers, and nothing to carry between calls.**",
       "",
-      "1. **Public** — catalogue reads (products, collections, search). No credentials.",
-      "2. **Cart cookie** — the bag is keyed by an httpOnly `cartId` cookie created on the first add. Use one cookie jar (`-c cookies.txt -b cookies.txt`) for the whole session, or every call sees an empty bag.",
-      "3. **Bearer token** — wishlist and orders need a per-user token. Get one with the two-step OTP flow below and send it as `Authorization: Bearer <token>`. Tokens last 7 days.",
+      "| header | answers | set by | changes |",
+      "| --- | --- | --- | --- |",
+      "| `X-Agent-Key` | Is this really the GLOWA agent? | GLOWA issues one shared secret; the agent platform injects it | static |",
+      "| `X-Customer-Ref` | Which shopper is this for? | the agent, per conversation | every request |",
+      "",
+      "Send both on any Cart, Wishlist or Orders call. The bag, wishlist and order history are keyed by the customer ref, so each request stands alone — no cookie jar, no session token, and no sign-in step for the shopper. An unseen ref is provisioned automatically on first use.",
       "",
       "```bash",
-      `curl -s -X POST '${baseUrl}/api/auth/email-otp/send-verification-otp' \\`,
-      "  -H 'Content-Type: application/json' \\",
-      `  -d '{"email":"agent@example.com","type":"sign-in"}'`,
+      "export AGENT_KEY='...'                    # the secret GLOWA issued you",
+      "export CUSTOMER_REF='ig_17841400000000000' # opaque, stable, one per shopper",
       "",
-      `TOKEN=$(curl -s -X POST '${baseUrl}/api/auth/sign-in/email-otp' \\`,
-      "  -H 'Content-Type: application/json' \\",
-      `  -d '{"email":"agent@example.com","otp":"000000"}' | jq -r .token)`,
-      "",
-      `curl -s -H "Authorization: Bearer $TOKEN" '${baseUrl}/api/wishlist'`,
+      `curl -s -H "X-Agent-Key: $AGENT_KEY" -H "X-Customer-Ref: $CUSTOMER_REF" \\`,
+      `  '${baseUrl}/api/wishlist'`,
       "```",
       "",
-      "**Demo deployment:** the code is always `000000` (override with `DEMO_OTP`), no email is sent, and an unknown address is registered on first sign-in — so an agent can bootstrap itself from nothing. This holds in every environment, production included, which also means anyone who can reach this server can sign in as any email address. There is no real user data here. `DEMO_OTP=off` switches to random codes, which then need a mail provider in `sendVerificationOTP` in `lib/auth.ts`.",
+      "Rules worth knowing:",
       "",
-      "Checkout needs both credentials at once: the token identifies the user, the cookie jar carries the bag.",
+      "- `X-Customer-Ref` is opaque. Do not send an email address as the ref, and do not expect the server to parse it.",
+      "- **Email is never a lookup key.** It is write-only contact data on the profile and the order. No endpoint takes an email and returns a customer, an address book or an order history, so a shopper who claims someone else's address gets their own empty profile.",
+      "- Address ids are scoped to their owner. Passing one that belongs to another customer ref returns 404, never that person's address.",
+      "- Sending `X-Customer-Ref` without a valid `X-Agent-Key` is a 401, never an anonymous fallback.",
+      "- In production, a server with no `AGENT_API_KEY` configured has the agent path disabled and returns 401 for every one of these calls. It fails closed, never open. Outside production the well-known key `dev-agent-key` works so local testing needs no setup.",
+      "- `AGENT_API_KEY` accepts a comma-separated list, so the operator can rotate keys without ever leaving you on a rejected one.",
+      "",
+      "**Browser clients** use one of the other two levels instead: catalogue reads are public and need nothing, while a signed-in browser sends a session cookie or a bearer token from `POST /api/auth/sign-in/email`. An anonymous browser bag rides on an httpOnly `cartId` cookie the browser returns by itself. There is no passwordless sign-in — a demo one that accepted a fixed code would let anyone sign in as any address.",
     ].join("\n"),
   )
 
   sections.push("## Agent quickstart")
   sections.push(
     [
-      "A complete buy flow, in order:",
+      "A complete buy flow. Send `X-Agent-Key` and `X-Customer-Ref` on steps 4 onwards; there is no sign-in step.",
       "",
       "1. `GET /api/collections` — discover valid category slugs.",
       "2. `GET /api/collections/dresses?limit=5` or `GET /api/search?q=summer%20dress` — find candidate products.",
       "3. `GET /api/products/{handle}` — read `variants[].id` for the size or colour you want. That GID is the `merchandiseId`.",
-      "4. `POST /api/cart/lines` with `{merchandiseId, quantity}` — creates the bag and its cookie.",
+      "4. `POST /api/cart/lines` with `{merchandiseId, quantity}` — fills the bag for this customer ref. No profile data needed to get this far.",
       "5. `GET /api/cart` — confirm lines and totals. Adjust with `PATCH /api/cart/lines` (quantity `0` removes a line).",
-      "6. `POST /api/auth/email-otp/send-verification-otp` then `POST /api/auth/sign-in/email-otp` — obtain a bearer token.",
-      "7. `POST /api/orders` with the token, the cookie jar, shipping details and the test card `4242424242424242` — converts the bag into an order and empties it.",
+      "6. `GET /api/customer` — **only now**. Read `missing` to see which of `email`, `name` and `shipping_address` you still need to ask for, and `addresses` to offer a saved one.",
+      "7. `POST /api/orders` with the test card `4242424242424242`, plus either `address_id` from step 6 or a full inline address. Converts the bag into an order and empties it. Add an `Idempotency-Key` header so a retry cannot buy twice.",
       "8. `GET /api/orders` — verify the order was recorded.",
+      "",
+      "On a return visit step 6 comes back with `missing: []`, so step 7 is an `address_id` and a card and nothing else. Do not ask for profile details before step 6 — browsing and adding to the bag need none of it.",
     ].join("\n"),
   )
 

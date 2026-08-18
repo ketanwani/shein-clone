@@ -7,13 +7,21 @@
  * update the matching entry here.
  */
 
-export type ApiAuth = "public" | "cart" | "session"
+/**
+ * "cart"    — agent headers, a bearer token, or the anonymous cartId cookie.
+ * "session" — agent headers or a bearer token; there is no anonymous form.
+ * "bearer"  — a bearer token only. Better Auth owns these routes and knows nothing
+ *             about the agent headers, so advertising the agent path there would lie.
+ * "agent"   — agent headers only. The customer surface has no browser equivalent; the
+ *             website manages the same data through the account pages.
+ */
+export type ApiAuth = "public" | "cart" | "session" | "bearer" | "agent"
 
 export type JsonSchema = Record<string, unknown>
 
 export type ApiParam = {
   name: string
-  in: "path" | "query"
+  in: "path" | "query" | "header"
   type: "string" | "integer"
   required?: boolean
   description: string
@@ -46,8 +54,6 @@ export type ApiEndpoint = {
   summary: string
   description: string
   auth: ApiAuth
-  /** Also reads the cartId cookie, so the curl example needs the cookie jar too. */
-  usesCart?: boolean
   params?: ApiParam[]
   body?: ApiBodyField[]
   responses: ApiResponse[]
@@ -67,9 +73,34 @@ export const DEFAULT_BASE_URL = "http://localhost:3000"
 
 export const AUTH_LABELS: Record<ApiAuth, string> = {
   public: "Public — no credentials",
-  cart: "Cart cookie — send and store cookies",
-  session: "Bearer token — sign in first",
+  cart: "Agent headers, a bearer token, or the anonymous cart cookie",
+  session: "Agent headers, or a bearer token",
+  bearer: "Bearer token or session cookie — no agent path",
+  agent: "Agent headers — X-Agent-Key and X-Customer-Ref",
 }
+
+/** Documented on every endpoint an agent can call, so the two headers are never implicit. */
+export const AGENT_KEY_PARAM: ApiParam = {
+  name: "X-Agent-Key",
+  in: "header",
+  type: "string",
+  required: true,
+  description:
+    "Shared secret issued by GLOWA, proving the caller is the agent. Compared in constant time against the server's AGENT_API_KEY list, so keys can be rotated without downtime. Outside production the well-known key `dev-agent-key` also works.",
+  example: "$AGENT_KEY",
+}
+
+export const CUSTOMER_REF_PARAM: ApiParam = {
+  name: "X-Customer-Ref",
+  in: "header",
+  type: "string",
+  required: true,
+  description:
+    "Opaque, stable id for the shopper this call is for (e.g. an Instagram-scoped user id). Treated as a bare string — never parsed, and never an email address.",
+  example: "ig_17841400000000000",
+}
+
+const AGENT_HEADERS: ApiParam[] = [AGENT_KEY_PARAM, CUSTOMER_REF_PARAM]
 
 // --- JSON Schema components ------------------------------------------------
 
@@ -168,9 +199,37 @@ export const SCHEMAS: Record<string, JsonSchema> = {
     currency: str(),
     cardLast4: nullable(str()),
     status: str("\"paid\""),
+    addressId: nullable(str("The address book entry this shipped to, whether picked with address_id or saved from an inline address.")),
     createdAt: str("ISO 8601 timestamp"),
     items: arrayOf(ref("OrderItem")),
   }),
+  Address: obj(
+    {
+      id: str("Stable, opaque. Quote this back as address_id at checkout."),
+      label: str("Free text in the shopper's own words. Absent when they did not give one."),
+      line1: str(),
+      city: str(),
+      zip: str(),
+      country: str(),
+      is_default: bool(),
+    },
+    ["id", "line1", "city", "zip", "country", "is_default"],
+  ),
+  Customer: obj(
+    {
+      status: { type: "string", enum: ["new", "known"], description: '"new" means nothing is on file yet.' },
+      email: str("Contact data only. Absent until the shopper gives one."),
+      name: str("Absent until the shopper gives one."),
+      missing: {
+        type: "array",
+        items: { type: "string", enum: ["email", "name", "shipping_address"] },
+        description:
+          "Field names the agent still needs to collect before checkout. Machine-readable on purpose — compose your own question from these, do not expect prose.",
+      },
+      addresses: arrayOf(ref("Address")),
+    },
+    ["status", "missing", "addresses"],
+  ),
   Error: obj(
     {
       error: obj(
@@ -285,6 +344,7 @@ const ORDER_EXAMPLE = {
   currency: "USD",
   cardLast4: "4242",
   status: "paid",
+  addressId: "addr_9f2c41a8b7e04d13",
   createdAt: "2026-08-17T12:04:11.512Z",
   items: [
     {
@@ -298,6 +358,16 @@ const ORDER_EXAMPLE = {
       productHandle: "ribbed-knit-mini-dress",
     },
   ],
+}
+
+const ADDRESS_EXAMPLE = {
+  id: "addr_9f2c41a8b7e04d13",
+  label: "Home",
+  line1: "12 Analytical Way",
+  city: "London",
+  zip: "EC1A 1AA",
+  country: "GB",
+  is_default: true,
 }
 
 const listResponse = (extra?: Record<string, JsonSchema>): JsonSchema =>
@@ -315,6 +385,22 @@ const UNAUTHORIZED = errorResponse(401, "No valid session cookie was sent.", {
     code: "unauthorized",
     message: "This endpoint requires a signed-in session.",
     hint: "POST /api/auth/sign-in/email with {email, password} and send the returned cookie on this request.",
+  },
+})
+
+const AGENT_UNAUTHORIZED = errorResponse(401, "Missing or wrong X-Agent-Key, or agent access is switched off on this deployment.", {
+  error: {
+    code: "unauthorized",
+    message: "Invalid or missing X-Agent-Key.",
+    hint: "Send X-Agent-Key with the shared secret issued by GLOWA, plus X-Customer-Ref identifying the shopper.",
+  },
+})
+
+const CUSTOMER_REF_REQUIRED = errorResponse(400, "The agent key checked out but no shopper was named.", {
+  error: {
+    code: "bad_request",
+    message: "X-Customer-Ref is required on this endpoint.",
+    hint: "Send X-Customer-Ref with a stable, opaque id for this shopper (e.g. the Instagram-scoped user id). An email address is not accepted as identity.",
   },
 })
 
@@ -355,65 +441,14 @@ export const API_GROUPS: ApiGroup[] = [
     name: "Auth",
     slug: "auth",
     description:
-      "Agents authenticate with a per-user bearer token. Request a one-time code for an email address, exchange it for a token, then send `Authorization: Bearer <token>` on every protected call. Tokens are session tokens and last 7 days. The website's own cookie login still works unchanged — the bearer header is simply an alternative way to present the same session. Better Auth owns these four routes, so their errors are flat `{message, code}` objects rather than the storefront's nested `{error: {...}}` shape.",
+      "**Agents do not use these routes.** An agent authenticates itself with `X-Agent-Key` and names the shopper with `X-Customer-Ref` on the Cart, Wishlist and Orders calls directly — no sign-in step, no token to store, and nothing for the shopper to fetch from an inbox. See those tags for the headers. What remains here is the website's own email-and-password login, kept for browser users; there is no passwordless flow, because a demo one that accepted a fixed code would let anyone sign in as any address. Better Auth owns these four routes, so their errors are flat `{message, code}` objects rather than the storefront's nested `{error: {...}}` shape.",
     endpoints: [
-      {
-        method: "POST",
-        path: "/api/auth/email-otp/send-verification-otp",
-        summary: "Request a one-time code",
-        description:
-          "Starts sign-in for an email address. An unknown email is registered on first successful sign-in, so there is no separate sign-up step.",
-        auth: "public",
-        body: [
-          { name: "email", type: "string", required: true, description: "Where the code would be sent.", example: "agent@example.com" },
-          { name: "type", type: "string", required: true, description: 'Always "sign-in" for this flow.', example: "sign-in" },
-        ],
-        responses: [
-          { status: 200, description: "Code issued.", example: { success: true } },
-          AUTH_DATABASE_DOWN,
-        ],
-        notes: [
-          "Demo deployment: no email is sent. The code is always 000000 (override with DEMO_OTP) in every environment, including production, and is also printed to the server console — so an agent can complete sign-in unattended.",
-          "This means anyone who can reach this server can sign in as any email address. There is no real user data behind it. Set DEMO_OTP=off to switch to random codes, which then require a mail provider in sendVerificationOTP in lib/auth.ts.",
-        ],
-      },
-      {
-        method: "POST",
-        path: "/api/auth/sign-in/email-otp",
-        summary: "Exchange the code for a bearer token",
-        description:
-          "Verifies the code and returns a session token. Keep `token` and send it as `Authorization: Bearer <token>` on every protected request. Codes expire after 10 minutes.",
-        auth: "public",
-        body: [
-          { name: "email", type: "string", required: true, description: "Same email used for the code request.", example: "agent@example.com" },
-          { name: "otp", type: "string", required: true, description: "The six-digit code. Always 000000 in this demo deployment.", example: "000000" },
-        ],
-        responses: [
-          {
-            status: 200,
-            description: "Signed in. The user row is created if this email was new.",
-            example: {
-              token: "HAeYnI0t485yhh15P2FiOXlRcRf3FcIA",
-              user: {
-                id: "MYY88xz71WYiVfibToLL53UZT3C7hTjV",
-                email: "agent@example.com",
-                name: "",
-                emailVerified: true,
-                createdAt: "2026-08-17T11:46:57.039Z",
-              },
-            },
-          },
-          authError(400, "Wrong or expired code.", "INVALID_OTP", "Invalid OTP"),
-          AUTH_DATABASE_DOWN,
-        ],
-        notes: ["Export it once and reuse it: `TOKEN=$(curl -s ... | jq -r .token)`."],
-      },
       {
         method: "POST",
         path: "/api/auth/sign-up/email",
         summary: "Create an account with a password",
         description:
-          "The website's signup form. Registers a user and signs them in immediately (autoSignIn is enabled). Agents do not need this — the OTP flow registers unknown emails on first sign-in.",
+          "The website's signup form. Registers a user and signs them in immediately (autoSignIn is enabled). Agents do not need this — an unseen X-Customer-Ref is provisioned automatically on first use.",
         auth: "public",
         body: [
           { name: "name", type: "string", required: true, description: "Display name.", example: "Ada Lovelace" },
@@ -443,7 +478,7 @@ export const API_GROUPS: ApiGroup[] = [
         path: "/api/auth/sign-in/email",
         summary: "Sign in with a password",
         description:
-          "The website's login form. Returns the same kind of session token as the OTP flow, so its `token` also works as a bearer token — but an agent has no way to obtain a password on its own, so prefer the OTP flow above.",
+          "The website's login form. The returned `token` also works as a bearer token, which is how a non-browser client with a real account's password authenticates. An agent has no password and does not need one — use X-Agent-Key with X-Customer-Ref instead.",
         auth: "public",
         body: [
           { name: "email", type: "string", required: true, description: "Registered email.", example: "agent@example.com" },
@@ -464,8 +499,8 @@ export const API_GROUPS: ApiGroup[] = [
         path: "/api/auth/get-session",
         summary: "Inspect the current session",
         description:
-          "Returns the signed-in user, or null when the credential is missing or expired. Accepts either a bearer token or a cookie. Use it to check whether a stored token is still valid before a write.",
-        auth: "session",
+          "Returns the signed-in user, or null when the credential is missing or expired. Accepts either a bearer token or a cookie. Use it to check whether a stored token is still valid before a write. Agents have no session to inspect — this route does not understand the agent headers.",
+        auth: "bearer",
         responses: [
           {
             status: 200,
@@ -479,8 +514,8 @@ export const API_GROUPS: ApiGroup[] = [
         path: "/api/auth/sign-out",
         summary: "Sign out",
         description:
-          "Revokes the current session, invalidating the bearer token and clearing the cookie. Send `Content-Type: application/json` even though there is no body.",
-        auth: "session",
+          "Revokes the current session, invalidating the bearer token and clearing the cookie. Send `Content-Type: application/json` even though there is no body. Agents have no session to revoke — this route does not understand the agent headers.",
+        auth: "bearer",
         responses: [
           { status: 200, description: "Signed out.", example: { success: true } },
           authError(
@@ -684,17 +719,125 @@ export const API_GROUPS: ApiGroup[] = [
     ],
   },
   {
+    name: "Customer",
+    slug: "customer",
+    description:
+      "The shopper's contact details and address book, so the agent can find out what it still needs to ask for before checkout — and, on a return visit, ask for nothing at all. Everything here is keyed by `X-Customer-Ref`. **Email is never a lookup key**: it is contact data written onto the profile and the order, and two refs that give the same address stay two separate shoppers with separate address books. Do not front-load any of this — browsing, search and adding to the bag need no profile data, so ask only at checkout.",
+    endpoints: [
+      {
+        method: "GET",
+        path: "/api/customer",
+        summary: "What do we still need to ask for?",
+        description:
+          "The shopper's profile and saved addresses. **Always 200**, including for a customer ref that has never been seen — an unknown shopper is a normal state on the happy path, not an error, so there is no 404 to handle. Read `missing` to decide what to ask; read `addresses` to offer a choice.",
+        auth: "agent",
+        params: AGENT_HEADERS,
+        responses: [
+          {
+            status: 200,
+            description: "The shopper, known or not.",
+            schema: obj({ customer: ref("Customer") }),
+            example: { customer: { status: "new", missing: ["email", "name", "shipping_address"], addresses: [] } },
+            exampleNote:
+              "A known shopper instead returns status \"known\", their email and name, an empty missing array, and their saved addresses.",
+          },
+          AGENT_UNAUTHORIZED,
+          CUSTOMER_REF_REQUIRED,
+          DATABASE_UNAVAILABLE,
+        ],
+        notes: [
+          "`missing` is an array of field names, never prose — compose the question yourself rather than relaying a sentence.",
+          "Every address carries a stable `id`. When the shopper says \"send it to work\", send that id back as `address_id` on POST /api/orders.",
+          "`label` is free text and is omitted rather than invented, so do not rely on it being present.",
+        ],
+      },
+      {
+        method: "PATCH",
+        path: "/api/customer",
+        summary: "Record contact details",
+        description:
+          "Stores an email or name the shopper has given. Both are optional; send whichever you just learned. Writing an email that matches another customer changes nothing about who this customer is — refs never merge.",
+        auth: "agent",
+        params: AGENT_HEADERS,
+        body: [
+          { name: "email", type: "string", description: "Contact address for orders.", example: "ada@example.com" },
+          { name: "name", type: "string", description: "Shipping recipient.", example: "Ada Lovelace" },
+        ],
+        responses: [
+          {
+            status: 200,
+            description: "The updated customer, same shape as GET.",
+            schema: obj({ customer: ref("Customer") }),
+            example: {
+              customer: { status: "known", email: "ada@example.com", name: "Ada Lovelace", missing: ["shipping_address"], addresses: [] },
+            },
+          },
+          AGENT_UNAUTHORIZED,
+          CUSTOMER_REF_REQUIRED,
+          DATABASE_UNAVAILABLE,
+        ],
+      },
+      {
+        method: "GET",
+        path: "/api/customer/addresses",
+        summary: "List saved addresses",
+        description: "The shopper's address book. The same array GET /api/customer returns, on its own.",
+        auth: "agent",
+        params: AGENT_HEADERS,
+        responses: [
+          {
+            status: 200,
+            description: "Saved addresses, oldest first.",
+            schema: obj({ count: int(), addresses: arrayOf(ref("Address")) }),
+            example: { count: 1, addresses: [ADDRESS_EXAMPLE] },
+          },
+          AGENT_UNAUTHORIZED,
+          CUSTOMER_REF_REQUIRED,
+          DATABASE_UNAVAILABLE,
+        ],
+      },
+      {
+        method: "POST",
+        path: "/api/customer/addresses",
+        summary: "Save an address",
+        description:
+          "Adds an address to the book and returns it with the id to quote at checkout. The shopper's first address becomes their default automatically. Checkout also saves an inline address for you, so this is only needed when the shopper wants one stored ahead of time.",
+        auth: "agent",
+        params: AGENT_HEADERS,
+        body: [
+          { name: "line1", type: "string", required: true, description: "Street address.", example: "12 Analytical Way" },
+          { name: "city", type: "string", required: true, description: "City.", example: "London" },
+          { name: "zip", type: "string", required: true, description: "Postal code.", example: "EC1A 1AA" },
+          { name: "country", type: "string", required: true, description: "Country.", example: "GB" },
+          { name: "label", type: "string", description: "The shopper's own words, e.g. \"Home\". Omit rather than inventing one.", example: "Home" },
+          { name: "is_default", type: "string", description: "Boolean. Makes this the default, demoting any previous one.", example: "true" },
+        ],
+        responses: [
+          { status: 201, description: "Saved.", schema: obj({ address: ref("Address") }), example: { address: ADDRESS_EXAMPLE } },
+          errorResponse(400, "Missing a required address field.", {
+            error: { code: "bad_request", message: '"line1" is required and must be a non-empty string.' },
+          }),
+          AGENT_UNAUTHORIZED,
+          CUSTOMER_REF_REQUIRED,
+          DATABASE_UNAVAILABLE,
+        ],
+      },
+    ],
+  },
+  {
     name: "Cart",
     slug: "cart",
     description:
-      "The bag is identified by an httpOnly `cartId` cookie created on the first add. Pass `-c cookies.txt -b cookies.txt` so the same bag persists across calls. No sign-in required.",
+      "Three ways to identify the bag, all backed by the same server-side store. **Agents** send `X-Agent-Key` and `X-Customer-Ref`: the bag is keyed by the customer ref, so no cookie is involved and every call is independent — this is the path to use from a chat integration. **Signed-in browsers** send a bearer token or session cookie and the bag is keyed by the account. **Anonymous browsers** get an httpOnly `cartId` cookie on the first add, which the browser returns automatically. An anonymous bag is adopted by the account on the first authenticated call, so signing in mid-shop loses nothing.",
     endpoints: [
       {
         method: "GET",
         path: "/api/cart",
         summary: "Get the current bag",
-        description: "Returns the bag for the caller's cartId cookie, or null when no bag exists yet.",
+        description:
+          "Returns the caller's bag, or null when no bag exists yet. The bag is found by customer ref for an agent, by account for a signed-in caller, and by cartId cookie otherwise.",
         auth: "cart",
+        params: AGENT_HEADERS,
         responses: [
           {
             status: 200,
@@ -709,8 +852,9 @@ export const API_GROUPS: ApiGroup[] = [
         path: "/api/cart/lines",
         summary: "Add an item",
         description:
-          "Adds a variant to the bag, creating the bag and its cookie on the first call. Adding the same variant twice increases the quantity of the existing line.",
+          "Adds a variant to the bag, creating the bag on the first call. Adding the same variant twice increases the quantity of the existing line.",
         auth: "cart",
+        params: AGENT_HEADERS,
         body: [
           {
             name: "merchandiseId",
@@ -728,7 +872,10 @@ export const API_GROUPS: ApiGroup[] = [
           }),
           SHOPIFY_UNAVAILABLE,
         ],
-        notes: ["Save the response's Set-Cookie header — without the cartId cookie the next call starts an empty bag."],
+        notes: [
+          "Agents: nothing to persist between calls. Send the same X-Customer-Ref and the bag is already there.",
+          "Anonymous browsers only: save the response's Set-Cookie header, or the next call starts an empty bag.",
+        ],
       },
       {
         method: "PATCH",
@@ -736,6 +883,7 @@ export const API_GROUPS: ApiGroup[] = [
         summary: "Change or remove a line",
         description: "Sets the absolute quantity of an existing line. A quantity of 0 removes the line — there is no separate delete route.",
         auth: "cart",
+        params: AGENT_HEADERS,
         body: [
           {
             name: "lineId",
@@ -757,8 +905,10 @@ export const API_GROUPS: ApiGroup[] = [
         method: "DELETE",
         path: "/api/cart",
         summary: "Empty the bag",
-        description: "Drops the cartId cookie, abandoning the bag. The next add starts a fresh one.",
+        description:
+          "Abandons the bag — the stored reference for an agent's customer ref or a signed-in account, and the cartId cookie for an anonymous browser. The next add starts a fresh one.",
         auth: "cart",
+        params: AGENT_HEADERS,
         responses: [{ status: 200, description: "Bag cleared.", schema: obj({ cart: nullable(ref("Cart")) }), example: { cart: null } }],
       },
     ],
@@ -766,15 +916,17 @@ export const API_GROUPS: ApiGroup[] = [
   {
     name: "Wishlist",
     slug: "wishlist",
-    description: "Saved product handles for the signed-in user, stored in Postgres. Requires a session cookie.",
+    description:
+      "Saved product handles for one shopper, stored in Postgres. Identified either by the agent's `X-Customer-Ref` or by a signed-in session — two customer refs never see each other's list.",
     endpoints: [
       {
         method: "GET",
         path: "/api/wishlist",
         summary: "List saved products",
-        description: "Returns the user's saved product handles, optionally expanded into full product objects.",
+        description: "Returns the shopper's saved product handles, optionally expanded into full product objects.",
         auth: "session",
         params: [
+          ...AGENT_HEADERS,
           {
             name: "expand",
             in: "query",
@@ -802,6 +954,7 @@ export const API_GROUPS: ApiGroup[] = [
         summary: "Save a product",
         description: "Adds a product handle to the wishlist. Adding one that is already saved is a no-op, so this is safe to retry.",
         auth: "session",
+        params: AGENT_HEADERS,
         body: [
           { name: "handle", type: "string", required: true, description: "Product handle to save.", example: "ribbed-knit-mini-dress" },
         ],
@@ -825,6 +978,7 @@ export const API_GROUPS: ApiGroup[] = [
         description: "Removes one handle. Removing something that was never saved still returns 200.",
         auth: "session",
         params: [
+          ...AGENT_HEADERS,
           { name: "handle", in: "path", type: "string", required: true, description: "Product handle to remove.", example: "ribbed-knit-mini-dress" },
         ],
         responses: [
@@ -839,47 +993,82 @@ export const API_GROUPS: ApiGroup[] = [
     name: "Orders",
     slug: "orders",
     description:
-      "Checkout and order history for the signed-in user. Payment is simulated: only the test card 4242 4242 4242 4242 is accepted, and no real charge is made.",
+      "Checkout and order history for one shopper, identified either by the agent's `X-Customer-Ref` or by a signed-in session. Payment is simulated: only the test card 4242 4242 4242 4242 is accepted, and no real charge is made.",
     endpoints: [
       {
         method: "POST",
         path: "/api/orders",
         summary: "Place an order",
         description:
-          "Converts the caller's current bag into an order and empties the bag. Totals are recomputed server-side from Shopify prices — subtotal, plus 3.99 shipping under a 29 subtotal, plus 8% tax — so no amounts are accepted from the client. Needs both credentials at once: the bearer token identifies the user, the cookie jar carries the bag.",
+          "Converts the shopper's current bag into an order and empties the bag. The credential identifies both the buyer and the bag, so no cookie is required.\n\nShip it two ways: send `address_id` from the shopper's address book, or send a full inline address, which is saved to the book for next time and whose id comes back on the order. If both are sent, `address_id` wins. `email` and `name` fall back to the stored profile, so a returning shopper checks out with nothing but an address id and a card.\n\nTotals are recomputed server-side from Shopify prices — subtotal, plus 3.99 shipping under a 29 subtotal, plus 8% tax — so no amounts are accepted from the client.",
         auth: "session",
-        usesCart: true,
+        params: [
+          ...AGENT_HEADERS,
+          {
+            name: "Idempotency-Key",
+            in: "header",
+            type: "string",
+            description:
+              "Optional. Repeating a request with the same key returns the order the first call created instead of placing a second one, and responds 200 rather than 201. Use one key per checkout attempt.",
+            example: "checkout-01HQ8-ab12",
+          },
+          {
+            name: "X-Customer-Email",
+            in: "header",
+            type: "string",
+            description:
+              "Optional contact address recorded against the shopper. Contact data only — it never identifies anyone and cannot be used to look up another shopper's data. The order's own email comes from the body.",
+            example: "shopper@example.com",
+          },
+        ],
         body: [
-          { name: "email", type: "string", required: true, description: "Contact email for the order.", example: "agent@example.com" },
-          { name: "name", type: "string", required: true, description: "Shipping recipient.", example: "Ada Lovelace" },
-          { name: "address", type: "string", required: true, description: "Street address.", example: "12 Analytical Way" },
-          { name: "city", type: "string", required: true, description: "City.", example: "London" },
-          { name: "zip", type: "string", required: true, description: "Postal code.", example: "EC1A 1AA" },
-          { name: "country", type: "string", required: true, description: "Country.", example: "GB" },
+          {
+            name: "address_id",
+            type: "string",
+            description:
+              "An id from this shopper's own address book (GET /api/customer). Wins over an inline address. An id belonging to anyone else returns 404 — it never ships to them.",
+            example: "addr_9f2c41a8b7e04d13",
+          },
+          { name: "email", type: "string", description: "Contact email. Optional once the profile holds one.", example: "ada@example.com" },
+          { name: "name", type: "string", description: "Shipping recipient. Optional once the profile holds one.", example: "Ada Lovelace" },
+          { name: "address", type: "string", description: "Inline street address. Required unless address_id is sent.", example: "12 Analytical Way" },
+          { name: "city", type: "string", description: "Required unless address_id is sent.", example: "London" },
+          { name: "zip", type: "string", description: "Required unless address_id is sent.", example: "EC1A 1AA" },
+          { name: "country", type: "string", description: "Required unless address_id is sent.", example: "GB" },
           { name: "cardNumber", type: "string", required: true, description: "Test card only: 4242424242424242.", example: "4242424242424242" },
           { name: "expiry", type: "string", required: true, description: "MM/YY.", example: "12/29" },
           { name: "cvc", type: "string", required: true, description: "3 or 4 digits.", example: "123" },
         ],
         responses: [
+          { status: 200, description: "Idempotent replay — the order this key already created. No second order was placed.", schema: obj({ order: ref("Order") }), example: { order: ORDER_EXAMPLE } },
           { status: 201, description: "Order placed and the bag emptied.", schema: obj({ order: ref("Order") }), example: { order: ORDER_EXAMPLE } },
-          errorResponse(400, "Empty bag, declined card, or a missing shipping field.", {
-            error: { code: "order_rejected", message: "Card declined. Use test card 4242 4242 4242 4242." },
+          errorResponse(400, "Empty bag, declined card, or details still missing.", {
+            error: { code: "order_rejected", message: "Still needed before checkout: email, shipping_address." },
+          }),
+          errorResponse(404, "address_id does not belong to this shopper.", {
+            error: {
+              code: "not_found",
+              message: 'No address "addr_9f2c41a8b7e04d13" for this customer.',
+              hint: "Use an id from GET /api/customer, or send a full inline address instead.",
+            },
           }),
           UNAUTHORIZED,
           DATABASE_UNAVAILABLE,
         ],
         notes: [
-          "Send the same cookie jar used for the cart calls — the order is built from that bag, not from the request body.",
-          "A bearer token alone is not enough: without the cartId cookie the bag reads as empty and the call returns order_rejected.",
-          "This endpoint is not idempotent: calling it twice with a non-empty bag creates two orders.",
+          "The order is built from the server-side bag, not from the request body — fill the bag first with POST /api/cart/lines using the same credential.",
+          "Call GET /api/customer first: its `missing` array tells you exactly which of email, name and shipping_address you still need to ask for.",
+          "Send an Idempotency-Key and retries are safe: the same key returns the first order with 200 instead of buying the bag twice.",
+          "A rejected card or an empty bag does not consume the key, so the agent can fix the input and retry with it.",
         ],
       },
       {
         method: "GET",
         path: "/api/orders",
         summary: "List orders",
-        description: "The signed-in user's orders, newest first, each with its line items.",
+        description: "The shopper's orders, newest first, each with its line items.",
         auth: "session",
+        params: AGENT_HEADERS,
         responses: [
           { status: 200, description: "Order history.", schema: obj({ count: int(), orders: arrayOf(ref("Order")) }), example: { count: 1, orders: [ORDER_EXAMPLE] } },
           UNAUTHORIZED,
@@ -890,9 +1079,10 @@ export const API_GROUPS: ApiGroup[] = [
         method: "GET",
         path: "/api/orders/{orderNumber}",
         summary: "Get one order",
-        description: "A single order by its order number. Scoped to the signed-in user, so another user's order returns 404.",
+        description: "A single order by its order number. Scoped to the shopper, so another shopper's order returns 404 even with a valid agent key.",
         auth: "session",
         params: [
+          ...AGENT_HEADERS,
           { name: "orderNumber", in: "path", type: "string", required: true, description: "Order number, e.g. GLW-12345678.", example: "GLW-12345678" },
         ],
         responses: [

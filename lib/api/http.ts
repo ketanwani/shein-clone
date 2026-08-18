@@ -1,25 +1,15 @@
-import { headers } from "next/headers"
-import { auth } from "@/lib/auth"
+import { assertAgentKey } from "@/lib/api/agent"
+import { ApiFailure } from "@/lib/api/failure"
 import { logRequestEnd, logRequestStart } from "@/lib/api/log"
 
+export { ApiFailure }
+
 const SIGN_IN_HINT =
-  "POST /api/auth/email-otp/send-verification-otp with {email, type:'sign-in'}, then POST /api/auth/sign-in/email-otp with {email, otp} and send the returned token as `Authorization: Bearer <token>`."
+  "Agents: send X-Agent-Key and X-Customer-Ref. Browsers: sign in, or POST /api/auth/sign-in/email with {email, password} and send the returned token as `Authorization: Bearer <token>`."
 const SHOPIFY_HINT =
   "Set SHOPIFY_STORE_DOMAIN and SHOPIFY_STOREFRONT_ACCESS_TOKEN in .env.local, then restart the dev server."
 const DATABASE_HINT =
   "Set DATABASE_URL in .env.local and create the tables from lib/db/schema.ts, then restart the dev server."
-
-/** An error that maps to a documented JSON error response. */
-export class ApiFailure extends Error {
-  constructor(
-    readonly status: number,
-    readonly code: string,
-    message: string,
-    readonly hint?: string,
-  ) {
-    super(message)
-  }
-}
 
 export function json(data: unknown, status = 200) {
   return Response.json(data, { status })
@@ -78,6 +68,10 @@ export async function handle(request: Request, fn: () => Promise<Response>) {
   const pending = logRequestStart(request)
   let response: Response
   try {
+    // Before anything else, including reading the body: a caller presenting agent
+    // credentials must check out, or it gets 401 rather than a validation error that
+    // would let it probe the endpoint unauthenticated.
+    await assertAgentKey()
     response = await fn()
   } catch (err) {
     response = toErrorResponse(err)
@@ -96,15 +90,6 @@ export function assertDatabaseConfigured() {
       DATABASE_HINT,
     )
   }
-}
-
-export async function requireUser() {
-  assertDatabaseConfigured()
-  const session = await auth.api.getSession({ headers: await headers() })
-  if (!session?.user) {
-    throw new ApiFailure(401, "unauthorized", "This endpoint requires a signed-in session.", SIGN_IN_HINT)
-  }
-  return session.user
 }
 
 /** Reads a bounded positive integer from the query string. */
@@ -137,6 +122,14 @@ export function readString(body: Record<string, unknown>, field: string): string
     throw badRequest(`"${field}" is required and must be a non-empty string.`)
   }
   return value
+}
+
+/** Reads a field that may be absent. Present-but-not-a-string is still an error. */
+export function readOptionalString(body: Record<string, unknown>, field: string): string | null {
+  const value = body[field]
+  if (value === undefined || value === null) return null
+  if (typeof value !== "string") throw badRequest(`"${field}" must be a string when present.`)
+  return value.trim() || null
 }
 
 export function readInteger(

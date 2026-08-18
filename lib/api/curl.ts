@@ -27,9 +27,15 @@ export function curlFor(endpoint: ApiEndpoint, baseUrl = DEFAULT_BASE_URL) {
 
   if (endpoint.method !== "GET") parts.push(`-X ${endpoint.method}`)
 
-  // Session endpoints take a bearer token; the bag rides on a cookie jar.
-  if (endpoint.auth === "session") parts.push(`-H "Authorization: Bearer $TOKEN"`)
-  if (endpoint.auth === "cart" || endpoint.usesCart) parts.push("-b cookies.txt -c cookies.txt")
+  // These docs are agent-facing, so show the stateless header path. An agent has no
+  // cookie jar and cannot complete an OTP flow, which rules out both browser options.
+  if (endpoint.auth === "session" || endpoint.auth === "cart" || endpoint.auth === "agent") {
+    parts.push(`-H "X-Agent-Key: $AGENT_KEY"`)
+    parts.push(`-H "X-Customer-Ref: $CUSTOMER_REF"`)
+  }
+
+  // Better Auth routes only understand the session token.
+  if (endpoint.auth === "bearer") parts.push(`-H "Authorization: Bearer $TOKEN"`)
 
   parts.push(`'${baseUrl}${examplePath(endpoint)}'`)
 

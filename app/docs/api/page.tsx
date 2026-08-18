@@ -29,6 +29,8 @@ const AUTH_STYLES: Record<ApiEndpoint["auth"], string> = {
   public: "bg-muted text-muted-foreground",
   cart: "bg-amber-50 text-amber-900",
   session: "bg-accent/10 text-accent",
+  bearer: "bg-sky-50 text-sky-900",
+  agent: "bg-emerald-50 text-emerald-900",
 }
 
 function anchorFor(endpoint: ApiEndpoint) {
@@ -84,6 +86,7 @@ function FieldTable({
 function EndpointCard({ endpoint, baseUrl }: { endpoint: ApiEndpoint; baseUrl: string }) {
   const pathParams = (endpoint.params ?? []).filter((p) => p.in === "path")
   const queryParams = (endpoint.params ?? []).filter((p) => p.in === "query")
+  const headerParams = (endpoint.params ?? []).filter((p) => p.in === "header")
   const curl = curlFor(endpoint, baseUrl)
 
   return (
@@ -100,6 +103,18 @@ function EndpointCard({ endpoint, baseUrl }: { endpoint: ApiEndpoint; baseUrl: s
 
       <h4 className="mt-3 font-serif text-lg font-bold">{endpoint.summary}</h4>
       <p className="mt-1 text-sm leading-relaxed text-foreground/80">{endpoint.description}</p>
+
+      {headerParams.length > 0 && (
+        <FieldTable
+          caption="Headers"
+          rows={headerParams.map((p) => ({
+            name: p.name,
+            type: p.type,
+            required: Boolean(p.required),
+            detail: paramDetail(p),
+          }))}
+        />
+      )}
 
       {pathParams.length > 0 && (
         <FieldTable
@@ -140,7 +155,9 @@ function EndpointCard({ endpoint, baseUrl }: { endpoint: ApiEndpoint; baseUrl: s
 
       <p className="mt-5 text-xs font-bold uppercase tracking-wider text-muted-foreground">Responses</p>
       <div className="mt-2 space-y-2">
-        {endpoint.responses.map((response) => {
+        {/* Keyed by index, not status: an endpoint can document two distinct failures
+            that share a status, e.g. a missing body field and a missing header. */}
+        {endpoint.responses.map((response, index) => {
           const isSuccess = response.status < 400
           const body = (
             <>
@@ -151,7 +168,7 @@ function EndpointCard({ endpoint, baseUrl }: { endpoint: ApiEndpoint; baseUrl: s
 
           return (
             <details
-              key={response.status}
+              key={`${response.status}-${index}`}
               open={isSuccess}
               className="rounded-lg border border-border px-4 py-3 [&_summary]:cursor-pointer"
             >
@@ -248,19 +265,19 @@ export default async function ApiDocsPage() {
           <section id="quickstart" className="scroll-mt-24">
             <h2 className="font-serif text-2xl font-extrabold">Agent quickstart</h2>
             <p className="mt-2 text-sm text-foreground/80">
-              A complete buy flow. Use one cookie jar throughout — the bag and the session both live in cookies, and
-              checkout reads the bag from the same jar.
+              A complete buy flow. Send <code className="font-mono text-xs">X-Agent-Key</code> and{" "}
+              <code className="font-mono text-xs">X-Customer-Ref</code> on every user-scoped call below — there is no
+              sign-in step, no token to store and no cookie jar, so each request stands on its own.
             </p>
             <ol className="mt-4 space-y-2 text-sm text-foreground/80">
               {[
                 ["GET /api/collections", "discover valid category slugs"],
                 ["GET /api/search?q=summer%20dress", "find candidate products"],
                 ["GET /api/products/{handle}", "read variants[].id — that GID is the merchandiseId"],
-                ["POST /api/cart/lines", "add to the bag; creates the cartId cookie"],
+                ["POST /api/cart/lines", "add to the bag — no profile data needed to get this far"],
                 ["GET /api/cart", "confirm lines and totals"],
-                ["POST /api/auth/email-otp/send-verification-otp", "request a code for an email address"],
-                ["POST /api/auth/sign-in/email-otp", "exchange the code for a bearer token"],
-                ["POST /api/orders", "checkout with the token, the cookie jar and test card 4242424242424242"],
+                ["GET /api/customer", "only now: read missing[] to see what to ask for, addresses[] to offer one"],
+                ["POST /api/orders", "checkout with address_id or an inline address, plus an Idempotency-Key"],
                 ["GET /api/orders", "verify the order was recorded"],
               ].map(([call, why], index) => (
                 <li key={call} className="flex gap-3">
@@ -275,22 +292,26 @@ export default async function ApiDocsPage() {
               ))}
             </ol>
 
-            <h3 className="mt-8 font-serif text-lg font-bold">Getting a token</h3>
+            <h3 className="mt-8 font-serif text-lg font-bold">Authenticating</h3>
             <p className="mt-2 text-sm text-foreground/80">
-              Request a one-time code for any email address, then exchange it for a bearer token. An unknown address is
-              registered on first sign-in, so an agent can bootstrap itself. This is a demo deployment: the code is
-              always <code className="font-mono text-xs">000000</code>, no email is sent, and that holds in production
-              too — so treat every account here as public and put no real data behind it.
+              Two headers, and nothing to carry between calls.{" "}
+              <code className="font-mono text-xs">X-Agent-Key</code> is the shared secret GLOWA issued you, proving the
+              caller is the agent; it never changes.{" "}
+              <code className="font-mono text-xs">X-Customer-Ref</code> is an opaque, stable id for the shopper you are
+              acting for and changes per conversation. An unseen ref is provisioned on first use — no password, no
+              one-time code, and nothing for the shopper to fetch from an inbox.
             </p>
-            <Code className="mt-3">{`curl -s -X POST '${baseUrl}/api/auth/email-otp/send-verification-otp' \\
-  -H 'Content-Type: application/json' \\
-  -d '{"email":"agent@example.com","type":"sign-in"}'
+            <Code className="mt-3">{`export AGENT_KEY='...'                     # the secret GLOWA issued you
+export CUSTOMER_REF='ig_17841400000000000'  # opaque, stable, one per shopper
 
-TOKEN=$(curl -s -X POST '${baseUrl}/api/auth/sign-in/email-otp' \\
-  -H 'Content-Type: application/json' \\
-  -d '{"email":"agent@example.com","otp":"000000"}' | jq -r .token)
-
-curl -s -H "Authorization: Bearer $TOKEN" '${baseUrl}/api/wishlist'`}</Code>
+curl -s -H "X-Agent-Key: $AGENT_KEY" -H "X-Customer-Ref: $CUSTOMER_REF" \\
+  '${baseUrl}/api/wishlist'`}</Code>
+            <p className="mt-3 text-sm text-foreground/80">
+              Sending <code className="font-mono text-xs">X-Customer-Ref</code> without a valid key is a 401, never an
+              anonymous fallback, and if the server has no{" "}
+              <code className="font-mono text-xs">AGENT_API_KEY</code> configured the agent path is disabled entirely.
+              Browser clients sign in with email and password instead.
+            </p>
 
             <h3 className="mt-8 font-serif text-lg font-bold">Conventions</h3>
             <ul className="mt-2 space-y-1.5 text-sm text-foreground/80">

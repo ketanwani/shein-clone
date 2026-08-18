@@ -1,28 +1,92 @@
 "use server"
 
 import { cookies } from "next/headers"
+import { eq } from "drizzle-orm"
+import { db } from "@/lib/db"
+import { userCart } from "@/lib/db/schema"
+import { resolveSubject } from "@/lib/api/subject"
 import { createCart, getCart, addToCart, updateCart, removeFromCart } from "@/lib/shopify/cart"
 import type { Cart } from "@/lib/shopify/types"
 
 const CART_COOKIE = "cartId"
 
-async function resolveCartId(create: boolean): Promise<string | null> {
-  const store = await cookies()
-  let cartId = store.get(CART_COOKIE)?.value ?? null
+async function savedCartId(userId: string): Promise<string | null> {
+  const [saved] = await db
+    .select({ cartId: userCart.cartId })
+    .from(userCart)
+    .where(eq(userCart.userId, userId))
+    .limit(1)
+  return saved?.cartId ?? null
+}
 
-  if (!cartId && create) {
+async function rememberCart(userId: string, cartId: string) {
+  await db
+    .insert(userCart)
+    .values({ userId, cartId })
+    .onConflictDoUpdate({ target: userCart.userId, set: { cartId, updatedAt: new Date() } })
+}
+
+function writeCartCookie(store: Awaited<ReturnType<typeof cookies>>, cartId: string) {
+  store.set(CART_COOKIE, cartId, {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+    path: "/",
+    maxAge: 60 * 60 * 24 * 30,
+  })
+}
+
+/**
+ * Finds the caller's bag. Three ways in, one shared store (the user_cart table):
+ *
+ * Agent: keyed by the asserted X-Customer-Ref alone. Cookies are neither read nor
+ * written — the agent cannot carry one between calls, which is the whole problem this
+ * path exists to solve.
+ *
+ * Signed in via the website: keyed by the account, so a bearer token is enough. A bag
+ * already started anonymously is adopted on the first authenticated call, so nothing is
+ * lost when a guest signs in mid-shop.
+ *
+ * Anonymous browser: the cartId cookie, exactly as before.
+ */
+async function resolveCartId(create: boolean): Promise<string | null> {
+  const subject = await resolveSubject()
+
+  if (subject?.viaAgent) {
+    const saved = await savedCartId(subject.userId)
+    if (saved) return saved
+    if (!create) return null
+
     const cart = await createCart()
-    cartId = cart.id
-    store.set(CART_COOKIE, cartId, {
-      httpOnly: true,
-      sameSite: "lax",
-      secure: process.env.NODE_ENV === "production",
-      path: "/",
-      maxAge: 60 * 60 * 24 * 30,
-    })
+    await rememberCart(subject.userId, cart.id)
+    return cart.id
   }
 
-  return cartId
+  const store = await cookies()
+  const cookieCartId = store.get(CART_COOKIE)?.value ?? null
+
+  if (subject) {
+    const saved = await savedCartId(subject.userId)
+    if (saved) return saved
+
+    if (cookieCartId) {
+      await rememberCart(subject.userId, cookieCartId)
+      return cookieCartId
+    }
+
+    if (!create) return null
+    const cart = await createCart()
+    await rememberCart(subject.userId, cart.id)
+    writeCartCookie(store, cart.id)
+    return cart.id
+  }
+
+  if (cookieCartId) return cookieCartId
+  if (!create) return null
+
+  const cart = await createCart()
+  writeCartCookie(store, cart.id)
+  return cart.id
 }
 
 export async function getCartAction(): Promise<Cart | null> {
@@ -54,6 +118,13 @@ export async function removeCartLineAction(lineId: string): Promise<Cart> {
 }
 
 export async function clearCartAction(): Promise<void> {
-  const store = await cookies()
-  store.delete(CART_COOKIE)
+  const subject = await resolveSubject()
+
+  // An agent has no cookie jar; dropping the stored reference is the whole operation.
+  if (!subject?.viaAgent) {
+    const store = await cookies()
+    store.delete(CART_COOKIE)
+  }
+
+  if (subject) await db.delete(userCart).where(eq(userCart.userId, subject.userId))
 }

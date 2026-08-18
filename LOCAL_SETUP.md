@@ -58,32 +58,33 @@ reach npmjs.org directly.
 Two ways to present the same Better Auth session:
 
 - **Cookies** — what the website uses. Unchanged.
-- **Bearer tokens** — for API and agent access, via the `bearer` plugin.
+- **Bearer tokens** — for API clients holding a real account's password, via the
+  `bearer` plugin.
+- **Agent headers** — `X-Agent-Key` plus `X-Customer-Ref`, for stateless agent calls.
 
-Agents get a token with a two-step OTP flow that needs no email provider and no
-pre-existing account (an unknown address is registered on first sign-in):
+Agents do not sign in at all. Send `X-Agent-Key` alongside an opaque `X-Customer-Ref`
+naming the shopper. Locally this needs no setup — outside production the well-known key
+`dev-agent-key` is accepted:
 
 ```bash
-curl -s -X POST localhost:3000/api/auth/email-otp/send-verification-otp \
-  -H 'Content-Type: application/json' \
-  -d '{"email":"agent@example.com","type":"sign-in"}'
-
-TOKEN=$(curl -s -X POST localhost:3000/api/auth/sign-in/email-otp \
-  -H 'Content-Type: application/json' \
-  -d '{"email":"agent@example.com","otp":"000000"}' | jq -r .token)
-
-curl -s -H "Authorization: Bearer $TOKEN" localhost:3000/api/wishlist
+curl -s -H "X-Agent-Key: dev-agent-key" -H "X-Customer-Ref: ig_17841400000000000" \
+  localhost:3000/api/wishlist
 ```
 
-**The OTP is hardcoded to `000000`** (`DEMO_OTP`) because there is no mail provider.
-This is deliberate in **every** environment, production included, since the deployed
-app is a demo rather than a real store.
+An unseen ref is provisioned automatically on first use.
 
-The consequence: anyone who can reach the server can sign in as any email address and
-read or write that account's wishlist and orders. Never put real user data behind it.
-Set `DEMO_OTP=off` to fall back to random codes, which then need a real provider in
-`sendVerificationOTP` in `lib/auth.ts`. When the fixed code is live in production the
-server logs a warning on startup.
+For anything shared, set `AGENT_API_KEY` (`openssl rand -hex 32`). It takes a
+comma-separated list so keys can be rotated with no 401 window: add the new one, move
+the caller across, then drop the old one. **In production there is no fallback** — with
+`AGENT_API_KEY` unset the agent path is disabled and every such call returns 401. That
+is deliberate: a fixed key in the source would let anyone assert any customer ref
+against the public URL.
+
+**There is no passwordless sign-in.** The email-OTP flow was removed along with its
+fixed `DEMO_OTP` code: a hardcoded code let anyone reach the server sign in as any email
+address and read or write that account's wishlist and orders. Nothing needed it once
+agents stopped using it — the website's own login is email and password. Reintroducing
+passwordless login means wiring a real mail provider, not a fixed code.
 
 ### Cookie caveat in dev
 
