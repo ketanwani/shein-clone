@@ -1,4 +1,13 @@
-import { API_GROUPS, API_TITLE, API_VERSION, DEFAULT_BASE_URL, SCHEMAS, type ApiEndpoint, type ApiGroup } from "./spec"
+import {
+  API_GROUPS,
+  API_TITLE,
+  API_VERSION,
+  DEFAULT_BASE_URL,
+  SCHEMAS,
+  type ApiEndpoint,
+  type ApiGroup,
+  type JsonSchema,
+} from "./spec"
 
 function operationId(endpoint: ApiEndpoint) {
   const segments = endpoint.path
@@ -60,24 +69,49 @@ function requestBody(endpoint: ApiEndpoint) {
   }
 }
 
+/**
+ * OpenAPI allows exactly one entry per status code, but an endpoint can genuinely fail
+ * two ways with the same one — a missing body field and a missing header are both 400.
+ * Merging keeps both descriptions; building the object naively would silently drop all
+ * but the last, which is worse than a crowded description.
+ */
 function responses(endpoint: ApiEndpoint) {
+  const byStatus = new Map<string, { description: string[]; examples: unknown[]; schema?: JsonSchema }>()
+
+  for (const response of endpoint.responses) {
+    const status = String(response.status)
+    const entry = byStatus.get(status) ?? { description: [], examples: [] }
+    entry.description.push(response.description)
+    if (response.example !== undefined) entry.examples.push(response.example)
+    entry.schema ??= response.schema
+    byStatus.set(status, entry)
+  }
+
   return Object.fromEntries(
-    endpoint.responses.map((response) => [
-      String(response.status),
-      {
-        description: response.description,
-        ...(response.schema || response.example !== undefined
+    [...byStatus].map(([status, entry]) => {
+      // One example is `example`; several become `examples`, which is how OpenAPI 3.1
+      // expresses alternatives.
+      const content =
+        entry.schema || entry.examples.length > 0
           ? {
               content: {
                 "application/json": {
-                  ...(response.schema ? { schema: response.schema } : {}),
-                  ...(response.example !== undefined ? { example: response.example } : {}),
+                  ...(entry.schema ? { schema: entry.schema } : {}),
+                  ...(entry.examples.length === 1 ? { example: entry.examples[0] } : {}),
+                  ...(entry.examples.length > 1
+                    ? {
+                        examples: Object.fromEntries(
+                          entry.examples.map((value, index) => [`case${index + 1}`, { value }]),
+                        ),
+                      }
+                    : {}),
                 },
               },
             }
-          : {}),
-      },
-    ]),
+          : {}
+
+      return [status, { description: entry.description.join(" — or — "), ...content }]
+    }),
   )
 }
 

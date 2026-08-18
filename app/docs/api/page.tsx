@@ -155,7 +155,9 @@ function EndpointCard({ endpoint, baseUrl }: { endpoint: ApiEndpoint; baseUrl: s
 
       <p className="mt-5 text-xs font-bold uppercase tracking-wider text-muted-foreground">Responses</p>
       <div className="mt-2 space-y-2">
-        {endpoint.responses.map((response) => {
+        {/* Keyed by index, not status: an endpoint can document two distinct failures
+            that share a status, e.g. a missing body field and a missing header. */}
+        {endpoint.responses.map((response, index) => {
           const isSuccess = response.status < 400
           const body = (
             <>
@@ -166,7 +168,7 @@ function EndpointCard({ endpoint, baseUrl }: { endpoint: ApiEndpoint; baseUrl: s
 
           return (
             <details
-              key={response.status}
+              key={`${response.status}-${index}`}
               open={isSuccess}
               className="rounded-lg border border-border px-4 py-3 [&_summary]:cursor-pointer"
             >
