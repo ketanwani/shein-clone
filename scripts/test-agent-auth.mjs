@@ -192,6 +192,43 @@ async function main() {
   })
   check("verify with a wrong code -> 401 invalid_code", wrong.status === 401 && wrong.json?.error?.code === "invalid_code")
 
+  // --- Test-only delete endpoint -------------------------------------------
+  // Gated on two env vars; when either is missing the route must be a 404 rather than
+  // a 401, so nothing advertises that it exists.
+  console.log("\ntest-only delete endpoint")
+  const deleteEnabled = process.env.ALLOW_USER_DELETE?.trim() && process.env.DEMO_OTP_CODE?.trim()
+
+  const noOtp = await call("/api/admin/users?email=probe@example.com", { method: "DELETE" })
+  if (deleteEnabled) {
+    check("agent key without X-Admin-Otp -> 401", noOtp.status === 401, `got ${noOtp.status}`)
+    const wrongOtp = await fetch(`${BASE}/api/admin/users?email=probe@example.com`, {
+      method: "DELETE",
+      headers: { "X-Agent-Key": KEY, "X-Admin-Otp": "999999" },
+    })
+    check("agent key with a wrong X-Admin-Otp -> 401", wrongOtp.status === 401, `got ${wrongOtp.status}`)
+
+    const victim = `${unique("doomed")}@example.com`
+    const v = await signIn(victim)
+    await call("/api/wishlist", { method: "POST", token: v.token, body: { handle: "doomed-handle" } })
+    const del = await fetch(`${BASE}/api/admin/users?email=${encodeURIComponent(victim)}`, {
+      method: "DELETE",
+      headers: { "X-Agent-Key": KEY, "X-Admin-Otp": OTP },
+    })
+    const delBody = await del.json()
+    check("delete an existing shopper -> 200 deleted:true", del.status === 200 && delBody.deleted === true)
+    check("...and reports what it removed", (delBody.counts?.wishlist_item ?? 0) >= 1)
+
+    const dead = await call("/api/wishlist", { token: v.token })
+    check("...their token is dead afterwards -> 401", dead.status === 401, `got ${dead.status}`)
+
+    const again = await signIn(victim)
+    check("...and the address can sign in fresh", typeof again.token === "string" && again.token !== v.token)
+    const empty = await call("/api/wishlist", { token: again.token })
+    check("...with none of the old data", (empty.json?.handles ?? []).length === 0)
+  } else {
+    check("delete endpoint is 404 when not enabled", noOtp.status === 404, `got ${noOtp.status}`)
+  }
+
   console.log(`\n${passed} passed, ${failures.length} failed`)
   if (failures.length) {
     console.log("\nfailures:")
