@@ -1,41 +1,36 @@
 /**
  * Agent access to the storefront API.
  *
- * The trust boundary sits at the CALLER, not the end user. A Meta Business AI agent
- * driving this API from an Instagram DM makes independent, stateless HTTP calls: there
- * is no cookie jar, and asking the shopper to complete an email OTP would mean leaving
- * the chat. So two headers do two distinct jobs:
+ * One header, one job. X-Agent-Key proves the caller is the GLOWA agent, and that is all
+ * it proves. It says nothing about which shopper a call is for.
  *
- *   X-Agent-Key      proves the caller is the GLOWA agent (one shared secret, static)
- *   X-Customer-Ref   says which shopper the call is for (opaque, per conversation)
+ * There used to be a second header, X-Customer-Ref: an opaque per-conversation id the
+ * agent asserted, which provisioned a shopper on first sight and keyed their bag and
+ * profile. It is gone. A ref is the caller claiming who it is acting for, so everything
+ * it unlocked was reachable by anyone holding the shared secret — the reason the
+ * wishlist and orders already refused it. That rule now applies everywhere, so the only
+ * way to name a shopper is a bearer token they obtained themselves through the email-OTP
+ * flow. See lib/api/subject.ts.
  *
- * Per-user scoping does not go away — it moves from the user proving who they are to a
- * trusted caller asserting it. Everything downstream still keys off a real userId.
+ * A request that still sends X-Customer-Ref is not rejected. The header is simply not
+ * read, so a stale integration degrades to "no shopper identified" and gets the same
+ * recoverable 401 as one that never sent it.
  */
 
-import { createHash, randomUUID, timingSafeEqual } from "node:crypto"
+import { createHash, timingSafeEqual } from "node:crypto"
 import { headers } from "next/headers"
-import { eq } from "drizzle-orm"
-import { db } from "@/lib/db"
-import { agentCustomer, user } from "@/lib/db/schema"
 import { ApiFailure } from "@/lib/api/failure"
 
 const AGENT_KEY_HEADER = "x-agent-key"
-const CUSTOMER_REF_HEADER = "x-customer-ref"
-const CUSTOMER_EMAIL_HEADER = "x-customer-email"
 
-const AGENT_KEY_HINT =
-  "Send X-Agent-Key with the shared secret issued by GLOWA, plus X-Customer-Ref identifying the shopper."
-const CUSTOMER_REF_HINT =
-  "Send X-Customer-Ref with a stable, opaque id for this shopper (e.g. the Instagram-scoped user id). An email address is not accepted as identity."
+const AGENT_KEY_HINT = "Send X-Agent-Key with the shared secret issued by GLOWA."
 
 const IS_PRODUCTION = process.env.NODE_ENV === "production"
 
 /**
  * Well-known key so local development and tests work with no setup. It is deliberately
  * NOT a fallback in production: a fixed credential published in the source would let
- * anyone assert any customer ref against the deployed URL and read every shopper's bag,
- * wishlist and order history — the same hole the removed DEMO_OTP code opened.
+ * anyone reach every agent route on the deployed URL.
  */
 export const DEV_AGENT_KEY = "dev-agent-key"
 
@@ -88,52 +83,29 @@ function secretsMatch(candidate: string, accepted: string[]) {
   return matched
 }
 
-export type AgentSubject = {
-  /** The provisioned user row this call acts on. */
-  userId: string
-  /** The opaque ref the agent asserted. Treated as a bare string; never parsed. */
-  customerRef: string
-  /** Contact address for the order, if the agent supplied one. Never an identity. */
-  email: string | null
+/** Whether this request claims to be an agent at all. Says nothing about validity. */
+export async function agentKeyPresented(): Promise<boolean> {
+  return (await headers()).get(AGENT_KEY_HEADER) !== null
 }
 
 /**
- * Resolves the shopper an agent call is acting for.
- *
- * Returns null when the request carries no agent headers at all — that is a browser
- * request, and the caller should fall back to cookie/bearer session auth. Throws
- * ApiFailure when the request *claims* to be an agent but does not check out, so a bad
- * key can never quietly degrade into an anonymous session.
- */
-/**
- * Validates the agent credential envelope without resolving a shopper.
+ * Validates an agent key if one is presented, and lets a request with none through.
  *
  * Called by handle() for every API request, so a bad key is rejected before a handler
- * parses a body or touches Shopify. A request with no agent headers at all is a browser
- * request and passes straight through.
- *
- * Returns the presented ref (if any) purely so resolveAgentSubject can reuse the work.
+ * parses a body or touches Shopify. A request with no key at all is a browser request
+ * and passes straight through — the storefront shares most of these routes.
  */
-export async function assertAgentKey(): Promise<{ customerRef: string | null } | null> {
-  const store = await headers()
-  const presentedKey = store.get(AGENT_KEY_HEADER)
-  const customerRef = store.get(CUSTOMER_REF_HEADER)?.trim() || null
-
-  // X-Customer-Ref without a key is an unauthenticated identity claim, not a browser
-  // request — reject it rather than falling through to the anonymous cart.
-  if (presentedKey === null && !customerRef) return null
-
+export async function assertAgentKey(): Promise<void> {
+  if (!(await agentKeyPresented())) return
   await requireAgentKey()
-  return { customerRef }
 }
 
 /**
  * Demands a valid X-Agent-Key, rather than only checking one that happens to be present.
  *
- * assertAgentKey lets a request carrying no agent headers through, because browsers
- * share most of these routes. Endpoints that exist for the integration need the stronger
- * check: the two credentials are independent, so a request with a perfectly good bearer
- * token and no agent key is still rejected. Neither one substitutes for the other.
+ * Used by the routes that exist for the integration. The caller credential and the
+ * shopper credential are independent, so a request with a perfectly good bearer token
+ * and no agent key is still rejected, and vice versa.
  */
 export async function requireAgentKey(): Promise<void> {
   const presentedKey = (await headers()).get(AGENT_KEY_HEADER)
@@ -151,94 +123,4 @@ export async function requireAgentKey(): Promise<void> {
   if (presentedKey === null || !secretsMatch(presentedKey, accepted)) {
     throw new ApiFailure(401, "unauthorized", "Invalid or missing X-Agent-Key.", AGENT_KEY_HINT)
   }
-}
-
-export async function resolveAgentSubject(): Promise<AgentSubject | null> {
-  const envelope = await assertAgentKey()
-  if (!envelope) return null
-
-  const { customerRef } = envelope
-  if (!customerRef) {
-    throw new ApiFailure(400, "bad_request", "X-Customer-Ref is required on this endpoint.", CUSTOMER_REF_HINT)
-  }
-
-  const email = (await headers()).get(CUSTOMER_EMAIL_HEADER)?.trim() || null
-  const userId = await provisionCustomer(customerRef, email)
-  return { userId, customerRef, email }
-}
-
-/** Like resolveAgentSubject, but for routes that must not be reached without agent auth. */
-export async function requireAgentSubject(): Promise<AgentSubject> {
-  const subject = await resolveAgentSubject()
-  if (!subject) {
-    throw new ApiFailure(401, "unauthorized", "Invalid or missing X-Agent-Key.", AGENT_KEY_HINT)
-  }
-  return subject
-}
-
-/**
- * Finds or creates the user row behind a customer ref.
- *
- * The ref is the key. The supplied email is stored as contact data only — user.email
- * gets a synthetic per-ref address instead, so two refs sharing a real address stay two
- * separate shoppers and nobody can read an order history by guessing an email.
- */
-async function provisionCustomer(customerRef: string, email: string | null): Promise<string> {
-  const [existing] = await db
-    .select({ userId: agentCustomer.userId, linkedUserId: agentCustomer.linkedUserId, email: agentCustomer.email })
-    .from(agentCustomer)
-    .where(eq(agentCustomer.customerRef, customerRef))
-    .limit(1)
-
-  if (existing) {
-    if (email && email !== existing.email) {
-      await db
-        .update(agentCustomer)
-        .set({ email, updatedAt: new Date() })
-        .where(eq(agentCustomer.customerRef, customerRef))
-    }
-    // Once the shopper behind this ref has signed in, the ref names their account. The
-    // synthetic row it started as owns nothing any more — lib/api/adopt.ts moved it all.
-    return existing.linkedUserId ?? existing.userId
-  }
-
-  const userId = `agent_${randomUUID()}`
-  await db
-    .insert(user)
-    .values({
-      id: userId,
-      name: "Agent shopper",
-      email: syntheticEmail(customerRef),
-      emailVerified: false,
-    })
-    .onConflictDoNothing()
-
-  await db
-    .insert(agentCustomer)
-    .values({ customerRef, userId, email })
-    .onConflictDoNothing({ target: agentCustomer.customerRef })
-
-  // Two first calls for the same ref can race; whichever insert landed is the winner.
-  const [settled] = await db
-    .select({ userId: agentCustomer.userId, linkedUserId: agentCustomer.linkedUserId })
-    .from(agentCustomer)
-    .where(eq(agentCustomer.customerRef, customerRef))
-    .limit(1)
-
-  return settled?.linkedUserId ?? settled?.userId ?? userId
-}
-
-/** The ref this request presents, if any. Validates the key; provisions nothing. */
-export async function presentedCustomerRef(): Promise<string | null> {
-  return (await headers()).get(CUSTOMER_REF_HEADER)?.trim() || null
-}
-
-/**
- * user.email is NOT NULL and UNIQUE, and it must not carry the shopper's real address
- * — that column is reachable through the session APIs. A ref-derived placeholder keeps
- * the constraint satisfied without making the real address an identity.
- */
-function syntheticEmail(customerRef: string) {
-  const digest = createHash("sha256").update(customerRef).digest("hex").slice(0, 32)
-  return `agent+${digest}@customers.glowa.invalid`
 }

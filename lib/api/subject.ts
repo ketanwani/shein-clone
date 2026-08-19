@@ -1,29 +1,25 @@
 /**
- * Who a request acts for, whichever credential it arrived with.
+ * Who a request acts for.
  *
- * Three paths reach the same place — a userId that the bag, wishlist and orders key off:
+ * One shopper identity, and only one: the account behind a session. An agent gets that
+ * session as a bearer token the shopper obtained themselves through the email-OTP flow;
+ * a browser gets it as a cookie. Either way the answer is a real account.
  *
- *   session  Authorization: Bearer <token>, or a cookie in a browser
- *   agent    X-Agent-Key + X-Customer-Ref  (stateless; see lib/api/agent.ts)
- *   browser  session cookie (unchanged)
+ * X-Customer-Ref used to be a second answer — the caller asserting who it was acting
+ * for. It is gone, and nothing here reads it. A ref is only a claim, so everything it
+ * unlocked was reachable by anyone holding the shared secret; the wishlist and orders
+ * already refused it for that reason, and the cart and profile now do too. The cost is
+ * that a shopper must sign in before their first cart write, which is deliberate.
  *
- * The session is tried first and wins. A bearer token names an account the shopper
- * proved they own by completing an OTP; X-Customer-Ref is only the caller asserting who
- * it is acting for. When a request carries both, the proof beats the claim.
- *
- * The agent envelope is still validated on every request even when a session is what
- * ends up identifying the caller, so a bad key is a 401 rather than quietly degrading
- * into an anonymous session.
+ * The caller credential is separate and still checked independently: X-Agent-Key proves
+ * the request came from the integration, and neither credential substitutes for the
+ * other.
  */
 
 import { headers } from "next/headers"
 import { auth } from "@/lib/auth"
-import { assertAgentKey, presentedCustomerRef, requireAgentKey, resolveAgentSubject } from "@/lib/api/agent"
-import { reconcileCustomerRef } from "@/lib/api/adopt"
+import { agentKeyPresented, assertAgentKey, requireAgentKey } from "@/lib/api/agent"
 import { ApiFailure, assertDatabaseConfigured } from "@/lib/api/http"
-
-const SIGN_IN_HINT =
-  "Agents: send X-Agent-Key and X-Customer-Ref. Browsers: sign in, or POST /api/auth/sign-in/email with {email, password} and send the returned token as `Authorization: Bearer <token>`."
 
 /**
  * Written for the agent, not for a developer reading docs.
@@ -33,14 +29,12 @@ const SIGN_IN_HINT =
  * silences the conversation for 24 hours. So it says, plainly, that this is recoverable
  * and exactly which two calls recover it.
  */
-const BEARER_HINT =
-  "This is expected and recoverable — do not hand off to a human. The shopper is not signed in yet, or their token expired. Sign them in: POST /api/auth/email-otp/send-verification-otp with {email, type:\"sign-in\"}, ask the shopper for the 6-digit code they receive, then POST /api/auth/sign-in/email-otp with {email, otp}. Take data.token from the response, retry this call with `Authorization: Bearer <token>` plus X-Agent-Key, and continue."
+export const SIGN_IN_HINT =
+  'This is expected and recoverable — do not hand off to a human. The shopper is not signed in yet, or their token expired. Sign them in: POST /api/auth/email-otp/send-verification-otp with {email, type:"sign-in"}, ask the shopper for the 6-digit code they receive, then POST /api/auth/sign-in/email-otp with {email, otp}. Take data.token from the response, retry this call with `Authorization: Bearer <token>` plus X-Agent-Key, and continue.'
 
 export type Subject = {
   userId: string
-  /** True when the caller is a trusted agent acting for a shopper it named itself. */
-  viaAgent: boolean
-  /** Contact address supplied by the agent, if any. Never an identity. */
+  /** The account's own email. Contact details live on the customer profile. */
   email: string | null
 }
 
@@ -63,25 +57,15 @@ async function sessionUser() {
 /**
  * Resolves the subject, or null when nobody is identified.
  *
- * Throws for a malformed agent request (bad key, or a ref with no key), but stays quiet
- * for an absent or broken session.
+ * Validates an agent key if one is presented, so a bad key is a 401 rather than a quiet
+ * fall-through to an anonymous session. Null here means an anonymous browser, which the
+ * cart still serves through its cookie.
  */
 export async function resolveSubject(): Promise<Subject | null> {
-  const envelope = await assertAgentKey()
+  await assertAgentKey()
 
   const user = await sessionUser()
-  if (user) {
-    // Both credentials present: hand the ref's shopper over to the account, or refuse if
-    // the ref already belongs to someone else. Must happen before anything reads the
-    // bag, or checkout resolves an empty one.
-    await reconcileCustomerRef(envelope?.customerRef ?? null, user.id)
-    return { userId: user.id, viaAgent: false, email: user.email }
-  }
-
-  if (!envelope) return null
-
-  const agent = await resolveAgentSubject()
-  return agent ? { userId: agent.userId, viaAgent: true, email: agent.email } : null
+  return user ? { userId: user.id, email: user.email } : null
 }
 
 /** The subject for a route that requires one. 401s when the caller is anonymous. */
@@ -89,24 +73,17 @@ export async function requireSubject(): Promise<Subject> {
   assertDatabaseConfigured()
   const subject = await resolveSubject()
   if (!subject) {
-    throw new ApiFailure(401, "unauthorized", "This endpoint requires a signed-in user or an agent key.", SIGN_IN_HINT)
+    throw new ApiFailure(401, "unauthorized", "This endpoint requires a signed-in shopper.", SIGN_IN_HINT)
   }
   return subject
 }
 
 /**
- * The subject for a route where the shopper must have proved who they are.
+ * The subject for a shopper-scoped route: wishlist, orders, and the customer profile.
  *
- * Two independent checks, and both must pass:
- *
- *   X-Agent-Key            the caller is the GLOWA integration
- *   Authorization: Bearer  the shopper signed in, and this token is theirs
- *
- * X-Customer-Ref is deliberately not consulted here. On the wishlist and the order
- * history it would be a way round the token: anyone holding the shared secret could name
- * a shopper and read their history without that shopper ever signing in. The bag and the
- * customer profile still accept it — those are what the agent fills in on the shopper's
- * behalf before there is an account to speak of.
+ * Two independent checks, and both must pass — X-Agent-Key proves the caller is the
+ * GLOWA integration, and the bearer token proves the shopper signed in. A valid token
+ * with no agent key is rejected, and so is an agent key with no token.
  */
 export async function requireSessionSubject(): Promise<Subject> {
   assertDatabaseConfigured()
@@ -114,13 +91,33 @@ export async function requireSessionSubject(): Promise<Subject> {
 
   const user = await sessionUser()
   if (!user) {
-    throw new ApiFailure(401, "unauthorized", "This endpoint requires a signed-in shopper.", BEARER_HINT)
+    throw new ApiFailure(401, "unauthorized", "This endpoint requires a signed-in shopper.", SIGN_IN_HINT)
+  }
+  return { userId: user.id, email: user.email }
+}
+
+/**
+ * The subject for the cart, which serves agents and anonymous browsers alike.
+ *
+ * An agent call — anything presenting X-Agent-Key — must carry a bearer token, exactly
+ * like the wishlist. There is no anonymous agent bag any more: without a ref there is
+ * nothing to key one to, and inventing one would recreate the hole the ref left.
+ *
+ * A request with no agent key is a browser. Those keep the cartId cookie and the
+ * anonymous bag, so returning null here is a valid answer rather than an error.
+ */
+export async function resolveCartSubject(): Promise<Subject | null> {
+  if (await agentKeyPresented()) {
+    assertDatabaseConfigured()
+    await requireAgentKey()
+
+    const user = await sessionUser()
+    if (!user) {
+      throw new ApiFailure(401, "unauthorized", "This endpoint requires a signed-in shopper.", SIGN_IN_HINT)
+    }
+    return { userId: user.id, email: user.email }
   }
 
-  // The integration sends X-Customer-Ref on every call, so these routes see all three
-  // credentials. The token decides identity; the ref is reconciled against it so a pair
-  // naming two different shoppers is an error rather than a quiet preference.
-  await reconcileCustomerRef(await presentedCustomerRef(), user.id)
-
-  return { userId: user.id, viaAgent: false, email: user.email }
+  const user = await sessionUser()
+  return user ? { userId: user.id, email: user.email } : null
 }

@@ -4,19 +4,19 @@ import { pool } from "@/lib/db"
 import { maskEmails } from "@/lib/api/log"
 
 /**
- * Three ways in:
+ * Two ways in:
  *
  *   Browsers — email and password (the /login and /signup forms).
- *   Agents   — X-Agent-Key plus X-Customer-Ref; see lib/api/agent.ts.
  *   Shoppers, through an agent — email OTP exchanged for a bearer token.
  *
  * The OTP path is back, but not for the reason it was removed. It used to be the only
  * way an API client could get a token without a mail provider, and a fixed DEMO_OTP made
  * every account reachable by anyone who could reach the server. What it does now is let
  * the shopper — not the caller — say who they are: the Meta integration captures the
- * token once from the sign-in body, stores it encrypted, and injects it on user-scoped
- * calls, so wishlist and orders need a credential the shopper proved they own rather
- * than a ref the caller asserted.
+ * token once from the sign-in body, stores it encrypted, and injects it on shopper-scoped
+ * calls. It is the only shopper identity there is, now that X-Customer-Ref is gone: the
+ * bag, the profile, the wishlist and orders all need a credential the shopper proved they
+ * own rather than one the caller asserted. X-Agent-Key still proves the caller.
  *
  * There is still no mail provider, so the code goes nowhere. DEMO_OTP_CODE is the
  * deliberate, off-by-default escape hatch for that; lib/api/otp.ts owns it and documents

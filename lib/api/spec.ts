@@ -8,21 +8,18 @@
  */
 
 /**
- * "cart"     — agent headers, a bearer token, or the anonymous cartId cookie.
- * "session"  — agent headers or a bearer token; there is no anonymous form.
+ * "public"   — no credentials at all.
+ * "cart"     — X-Agent-Key AND a bearer token for an agent; a session cookie or the
+ *              anonymous cartId cookie for a browser. There is no anonymous agent bag.
  * "bearer"   — a bearer token only. Better Auth owns these routes and knows nothing
- *              about the agent headers, so advertising the agent path there would lie.
- * "agent"    — agent headers only. The customer surface has no browser equivalent; the
- *              website manages the same data through the account pages.
+ *              about X-Agent-Key, so advertising the agent path there would lie.
  * "agentKey" — X-Agent-Key alone. The sign-in endpoints: the caller must be the
  *              integration, but there is no shopper to name yet — naming one is what
  *              the flow is for.
  * "shopper"  — X-Agent-Key AND a bearer token, checked independently. Neither one
- *              substitutes for the other, and X-Customer-Ref is not accepted: on a
- *              shopper's saved items and order history, a ref would let anyone holding
- *              the shared secret read a named shopper without that shopper signing in.
+ *              substitutes for the other. This is the only way to name a shopper.
  */
-export type ApiAuth = "public" | "cart" | "session" | "bearer" | "agent" | "agentKey" | "shopper"
+export type ApiAuth = "public" | "cart" | "bearer" | "agentKey" | "shopper"
 
 export type JsonSchema = Record<string, unknown>
 
@@ -80,10 +77,8 @@ export const DEFAULT_BASE_URL = "http://localhost:3000"
 
 export const AUTH_LABELS: Record<ApiAuth, string> = {
   public: "Public — no credentials",
-  cart: "Agent headers, a bearer token, or the anonymous cart cookie",
-  session: "Agent headers, or a bearer token",
+  cart: "X-Agent-Key and a bearer token — or, for a browser, a cookie",
   bearer: "Bearer token or session cookie — no agent path",
-  agent: "Agent headers — X-Agent-Key and X-Customer-Ref",
   agentKey: "X-Agent-Key only — no shopper named yet",
   shopper: "X-Agent-Key and the shopper's bearer token — both required",
 }
@@ -99,16 +94,6 @@ export const AGENT_KEY_PARAM: ApiParam = {
   example: "$AGENT_KEY",
 }
 
-export const CUSTOMER_REF_PARAM: ApiParam = {
-  name: "X-Customer-Ref",
-  in: "header",
-  type: "string",
-  required: true,
-  description:
-    "Opaque, stable id for the shopper this call is for (e.g. an Instagram-scoped user id). Treated as a bare string — never parsed, and never an email address.",
-  example: "ig_17841400000000000",
-}
-
 export const BEARER_PARAM: ApiParam = {
   name: "Authorization",
   in: "header",
@@ -118,8 +103,6 @@ export const BEARER_PARAM: ApiParam = {
     "`Bearer <token>`, using the token from POST /api/auth/sign-in/email-otp (found at `data.token`). Identifies the shopper, where X-Agent-Key identifies the caller — both are required and neither substitutes for the other. Cookies are not required and not used: every call is independent.",
   example: "Bearer $TOKEN",
 }
-
-const AGENT_HEADERS: ApiParam[] = [AGENT_KEY_PARAM, CUSTOMER_REF_PARAM]
 
 /** Endpoints where the shopper themselves must have signed in. */
 const SHOPPER_HEADERS: ApiParam[] = [AGENT_KEY_PARAM, BEARER_PARAM]
@@ -444,7 +427,7 @@ const AGENT_UNAUTHORIZED = errorResponse(401, "Missing or wrong X-Agent-Key, or 
   error: {
     code: "unauthorized",
     message: "Invalid or missing X-Agent-Key.",
-    hint: "Send X-Agent-Key with the shared secret issued by GLOWA, plus X-Customer-Ref identifying the shopper.",
+    hint: "Send X-Agent-Key with the shared secret issued by GLOWA.",
   },
 })
 
@@ -466,36 +449,11 @@ const NO_AGENT_KEY = errorResponse(401, "X-Agent-Key is missing or wrong, whatev
   error: {
     code: "unauthorized",
     message: "Invalid or missing X-Agent-Key.",
-    hint: "Send X-Agent-Key with the shared secret issued by GLOWA, plus X-Customer-Ref identifying the shopper.",
+    hint: "Send X-Agent-Key with the shared secret issued by GLOWA.",
   },
 })
 
 const SHOPPER_UNAUTHORIZED: ApiResponse[] = [NO_SHOPPER_TOKEN, NO_AGENT_KEY]
-
-/**
- * Returned wherever an X-Customer-Ref and a bearer token can arrive together and name
- * two different shoppers. Answering by preferring one of them would leave the agent
- * unable to tell whose data it just read, so it is an error instead.
- */
-const REF_MISMATCH = errorResponse(
-  409,
-  "X-Customer-Ref and the bearer token name different shoppers.",
-  {
-    error: {
-      code: "customer_ref_mismatch",
-      message: "This X-Customer-Ref belongs to a different shopper than the bearer token.",
-      hint: "The ref was already handed over to another account. Send the token for that shopper, or start a new conversation with a fresh X-Customer-Ref. Do not retry with the same pair.",
-    },
-  },
-)
-
-const CUSTOMER_REF_REQUIRED = errorResponse(400, "The agent key checked out but no shopper was named.", {
-  error: {
-    code: "bad_request",
-    message: "X-Customer-Ref is required on this endpoint.",
-    hint: "Send X-Customer-Ref with a stable, opaque id for this shopper (e.g. the Instagram-scoped user id). An email address is not accepted as identity.",
-  },
-})
 
 const SHOPIFY_UNAVAILABLE = errorResponse(503, "Shopify credentials are not configured on the server.", {
   error: {
@@ -534,7 +492,7 @@ export const API_GROUPS: ApiGroup[] = [
     name: "Auth",
     slug: "auth",
     description:
-      "Two ways in, for two different callers.\n\n**Email OTP, for an agent acting for one shopper.** `send-verification-otp` mails a 6-digit code; `sign-in/email-otp` exchanges it for a session token at `data.token`, valid 7 days. Send that token as `Authorization: Bearer <token>` on the Wishlist and Orders calls, alongside `X-Agent-Key`. No cookie is involved at any point, and the account is created when a correct code arrives — never when one is requested — so a mistyped address leaves nothing behind. No refresh token is issued: re-run this flow when `data.expiresAt` passes.\n\n**Email and password, for the website's own login forms.** Unchanged, and still owned by Better Auth, so those two routes return flat `{message, code}` errors rather than the storefront's nested `{error: {...}}` shape.\n\nThe agent's other credential, `X-Customer-Ref`, still identifies the shopper on the Cart and Customer calls, where the agent is filling in details before there is an account. It is **not** accepted on the wishlist or the order history: there, only a token the shopper themselves obtained will do.\n\n**Sending all three credentials on every call is supported and expected.** `X-Agent-Key` proves the caller, the bearer token decides *identity*, and `X-Customer-Ref` is reconciled against it rather than competing with it. The first call carrying both a ref and a token hands that ref's shopper — bag, addresses, profile, order history — over to the account, after which the ref names that account. A ref already handed to one account, presented with another account's token, is 409 `customer_ref_mismatch`: an explicit error, never a silent pick, and it never returns the ref-holder's data.",
+      "Two ways in, for two different callers.\n\n**Email OTP, for an agent acting for one shopper.** `send-verification-otp` mails a 6-digit code; `sign-in/email-otp` exchanges it for a session token at `data.token`, valid 7 days. Send that token as `Authorization: Bearer <token>` alongside `X-Agent-Key` on every shopper-scoped call — cart, customer, wishlist and orders alike. No cookie is involved at any point, and the account is created when a correct code arrives, never when one is requested, so a mistyped address leaves nothing behind. No refresh token is issued: re-run this flow when the expiry passes.\n\n**Email and password, for the website's own login forms.** Unchanged, and still owned by Better Auth, so those two routes return flat `{message, code}` errors rather than the storefront's nested `{error: {...}}` shape.\n\n**There is exactly one way to identify a shopper: their bearer token.** `X-Customer-Ref` has been removed. It was the caller asserting who it was acting for, which made everything it unlocked reachable by anyone holding the shared secret — the reason the wishlist and orders already refused it. A request that still sends the header is not rejected; it is simply ignored, so a stale integration degrades to a recoverable 401 rather than breaking.\n\nThe practical consequence: **the shopper must be signed in before the first add-to-bag**, not just before checkout. There is no anonymous agent bag to fill first.",
     endpoints: [
       {
         method: "POST",
@@ -647,7 +605,7 @@ export const API_GROUPS: ApiGroup[] = [
         path: "/api/auth/sign-up/email",
         summary: "Create an account with a password",
         description:
-          "The website's signup form. Registers a user and signs them in immediately (autoSignIn is enabled). Agents do not need this — an unseen X-Customer-Ref is provisioned automatically on first use.",
+          "The website's signup form. Registers a user and signs them in immediately (autoSignIn is enabled). Agents do not use this — they sign a shopper in with the email-OTP flow above, which creates the account on first successful verification.",
         auth: "public",
         body: [
           { name: "name", type: "string", required: true, description: "Display name.", example: "Ada Lovelace" },
@@ -677,7 +635,7 @@ export const API_GROUPS: ApiGroup[] = [
         path: "/api/auth/sign-in/email",
         summary: "Sign in with a password",
         description:
-          "The website's login form. The returned `token` also works as a bearer token, which is how a non-browser client with a real account's password authenticates. An agent has no password and does not need one — use X-Agent-Key with X-Customer-Ref instead.",
+          "The website's login form. The returned `token` also works as a bearer token, which is how a non-browser client with a real account's password authenticates. An agent has no password and does not need one — use the email-OTP flow above.",
         auth: "public",
         body: [
           { name: "email", type: "string", required: true, description: "Registered email.", example: "agent@example.com" },
@@ -965,7 +923,7 @@ export const API_GROUPS: ApiGroup[] = [
     name: "Customer",
     slug: "customer",
     description:
-      "The shopper's contact details and address book, so the agent can find out what it still needs to ask for before checkout — and, on a return visit, ask for nothing at all. Everything here is keyed by `X-Customer-Ref`. **Email is never a lookup key**: it is contact data written onto the profile and the order, and two refs that give the same address stay two separate shoppers with separate address books. Do not front-load any of this — browsing, search and adding to the bag need no profile data, so ask only at checkout.",
+      "The shopper's contact details and address book, so the agent can find out what it still needs to ask for before checkout — and, on a return visit, ask for nothing at all. Everything here is keyed by the signed-in account, so these routes need `X-Agent-Key` and a bearer token. **Email is never a lookup key**: it is contact data written onto the profile and the order, and two shoppers who give the same address stay two separate accounts with separate address books. Do not front-load any of this — browsing and search need no profile data, so ask only when you reach checkout.",
     endpoints: [
       {
         method: "GET",
@@ -973,8 +931,8 @@ export const API_GROUPS: ApiGroup[] = [
         summary: "What do we still need to ask for?",
         description:
           "The shopper's profile and saved addresses. **Always 200**, including for a customer ref that has never been seen — an unknown shopper is a normal state on the happy path, not an error, so there is no 404 to handle. Read `missing` to decide what to ask; read `addresses` to offer a choice.",
-        auth: "agent",
-        params: AGENT_HEADERS,
+        auth: "shopper",
+        params: SHOPPER_HEADERS,
         responses: [
           {
             status: 200,
@@ -985,7 +943,6 @@ export const API_GROUPS: ApiGroup[] = [
               "A known shopper instead returns status \"known\", their email and name, an empty missing array, and their saved addresses.",
           },
           AGENT_UNAUTHORIZED,
-          CUSTOMER_REF_REQUIRED,
           DATABASE_UNAVAILABLE,
         ],
         notes: [
@@ -1000,8 +957,8 @@ export const API_GROUPS: ApiGroup[] = [
         summary: "Record contact details",
         description:
           "Stores an email or name the shopper has given. Both are optional; send whichever you just learned. Writing an email that matches another customer changes nothing about who this customer is — refs never merge.",
-        auth: "agent",
-        params: AGENT_HEADERS,
+        auth: "shopper",
+        params: SHOPPER_HEADERS,
         body: [
           { name: "email", type: "string", description: "Contact address for orders.", example: "ada@example.com" },
           { name: "name", type: "string", description: "Shipping recipient.", example: "Ada Lovelace" },
@@ -1016,7 +973,6 @@ export const API_GROUPS: ApiGroup[] = [
             },
           },
           AGENT_UNAUTHORIZED,
-          CUSTOMER_REF_REQUIRED,
           DATABASE_UNAVAILABLE,
         ],
       },
@@ -1025,8 +981,8 @@ export const API_GROUPS: ApiGroup[] = [
         path: "/api/customer/addresses",
         summary: "List saved addresses",
         description: "The shopper's address book. The same array GET /api/customer returns, on its own.",
-        auth: "agent",
-        params: AGENT_HEADERS,
+        auth: "shopper",
+        params: SHOPPER_HEADERS,
         responses: [
           {
             status: 200,
@@ -1035,7 +991,6 @@ export const API_GROUPS: ApiGroup[] = [
             example: { count: 1, addresses: [ADDRESS_EXAMPLE] },
           },
           AGENT_UNAUTHORIZED,
-          CUSTOMER_REF_REQUIRED,
           DATABASE_UNAVAILABLE,
         ],
       },
@@ -1045,8 +1000,8 @@ export const API_GROUPS: ApiGroup[] = [
         summary: "Save an address",
         description:
           "Adds an address to the book and returns it with the id to quote at checkout. The shopper's first address becomes their default automatically. Checkout also saves an inline address for you, so this is only needed when the shopper wants one stored ahead of time.",
-        auth: "agent",
-        params: AGENT_HEADERS,
+        auth: "shopper",
+        params: SHOPPER_HEADERS,
         body: [
           { name: "line1", type: "string", required: true, description: "Street address.", example: "12 Analytical Way" },
           { name: "city", type: "string", required: true, description: "City.", example: "London" },
@@ -1061,7 +1016,6 @@ export const API_GROUPS: ApiGroup[] = [
             error: { code: "bad_request", message: '"line1" is required and must be a non-empty string.' },
           }),
           AGENT_UNAUTHORIZED,
-          CUSTOMER_REF_REQUIRED,
           DATABASE_UNAVAILABLE,
         ],
       },
@@ -1071,7 +1025,7 @@ export const API_GROUPS: ApiGroup[] = [
     name: "Cart",
     slug: "cart",
     description:
-      "Three ways to identify the bag, all backed by the same server-side store. **Agents** send `X-Agent-Key` and `X-Customer-Ref`: the bag is keyed by the customer ref, so no cookie is involved and every call is independent — this is the path to use from a chat integration. **Signed-in browsers** send a bearer token or session cookie and the bag is keyed by the account. **Anonymous browsers** get an httpOnly `cartId` cookie on the first add, which the browser returns automatically. An anonymous bag is adopted by the account on the first authenticated call, so signing in mid-shop loses nothing.\n\nA **ref-keyed bag is adopted the same way**. The first call carrying both `X-Customer-Ref` and a bearer token hands the ref's shopper over to the account — bag, saved addresses, profile and any order history — and the ref names that account from then on. Without this an agent would fill a bag under the ref and find it empty at checkout, because `POST /api/orders` resolves the bag by account. The handover is one-way and exclusive: presenting a ref that already belongs to one account together with a different account's token is 409 `customer_ref_mismatch`, never a silent choice between the two.",
+      "One bag per shopper, in a shared server-side store.\n\n**Agents** send `X-Agent-Key` and the shopper's bearer token; the bag is keyed by the account. This is the first point in an agent conversation that needs the shopper signed in — there is no anonymous agent bag, so a call with no token returns 401 with instructions for the OTP flow rather than starting a bag nobody owns.\n\n**Signed-in browsers** send a session cookie and get the same account-keyed bag. **Anonymous browsers** get an httpOnly `cartId` cookie on the first add, which the browser returns automatically; that bag is adopted by the account on the first authenticated call, so signing in mid-shop loses nothing.",
     endpoints: [
       {
         method: "GET",
@@ -1080,7 +1034,7 @@ export const API_GROUPS: ApiGroup[] = [
         description:
           "Returns the caller's bag, or null when no bag exists yet. The bag is found by customer ref for an agent, by account for a signed-in caller, and by cartId cookie otherwise.",
         auth: "cart",
-        params: AGENT_HEADERS,
+        params: SHOPPER_HEADERS,
         responses: [
           {
             status: 200,
@@ -1088,7 +1042,6 @@ export const API_GROUPS: ApiGroup[] = [
             schema: obj({ cart: nullable(ref("Cart")) }),
             example: { cart: CART_EXAMPLE },
           },
-          REF_MISMATCH,
         ],
       },
       {
@@ -1098,7 +1051,7 @@ export const API_GROUPS: ApiGroup[] = [
         description:
           "Adds a variant to the bag, creating the bag on the first call. Adding the same variant twice increases the quantity of the existing line.",
         auth: "cart",
-        params: AGENT_HEADERS,
+        params: SHOPPER_HEADERS,
         body: [
           {
             name: "merchandiseId",
@@ -1115,10 +1068,9 @@ export const API_GROUPS: ApiGroup[] = [
             error: { code: "bad_request", message: '"merchandiseId" is required and must be a non-empty string.' },
           }),
           SHOPIFY_UNAVAILABLE,
-          REF_MISMATCH,
         ],
         notes: [
-          "Agents: nothing to persist between calls. Send the same X-Customer-Ref and the bag is already there.",
+          "Agents: nothing to persist between calls beyond the shopper's token. Send it again and the bag is already there.",
           "Anonymous browsers only: save the response's Set-Cookie header, or the next call starts an empty bag.",
         ],
       },
@@ -1128,7 +1080,7 @@ export const API_GROUPS: ApiGroup[] = [
         summary: "Change or remove a line",
         description: "Sets the absolute quantity of an existing line. A quantity of 0 removes the line — there is no separate delete route.",
         auth: "cart",
-        params: AGENT_HEADERS,
+        params: SHOPPER_HEADERS,
         body: [
           {
             name: "lineId",
@@ -1144,7 +1096,6 @@ export const API_GROUPS: ApiGroup[] = [
           errorResponse(400, "Missing or invalid lineId/quantity.", {
             error: { code: "bad_request", message: '"quantity" must be an integer between 0 and 20.' },
           }),
-          REF_MISMATCH,
         ],
       },
       {
@@ -1154,10 +1105,9 @@ export const API_GROUPS: ApiGroup[] = [
         description:
           "Abandons the bag — the stored reference for an agent's customer ref or a signed-in account, and the cartId cookie for an anonymous browser. The next add starts a fresh one.",
         auth: "cart",
-        params: AGENT_HEADERS,
+        params: SHOPPER_HEADERS,
         responses: [
           { status: 200, description: "Bag cleared.", schema: obj({ cart: nullable(ref("Cart")) }), example: { cart: null } },
-          REF_MISMATCH,
         ],
       },
     ],
@@ -1166,7 +1116,7 @@ export const API_GROUPS: ApiGroup[] = [
     name: "Wishlist",
     slug: "wishlist",
     description:
-      "Saved product handles for one shopper, stored in Postgres.\n\nThe shopper is identified by their **bearer token**, sent alongside `X-Agent-Key`. `X-Customer-Ref` is *not* accepted in the token's place here: a ref is the caller asserting who it is acting for, and on someone's saved items that would make the shared secret enough to read any shopper you can name. Without a token these routes answer 401 `unauthorized`, whatever else the request carries.\n\nSending the ref *as well as* the token is fine and expected — see the Auth tag for how the two are reconciled.",
+      "Saved product handles for one shopper, stored in Postgres.\n\nThe shopper is identified by their **bearer token**, sent alongside `X-Agent-Key`. Without a token these routes answer 401 `unauthorized`, whatever else the request carries.",
     endpoints: [
       {
         method: "GET",
@@ -1194,7 +1144,6 @@ export const API_GROUPS: ApiGroup[] = [
             exampleNote: `${ABBREVIATED} The products key is present only with expand=products.`,
           },
           ...SHOPPER_UNAUTHORIZED,
-          REF_MISMATCH,
           DATABASE_UNAVAILABLE,
         ],
       },
@@ -1217,7 +1166,6 @@ export const API_GROUPS: ApiGroup[] = [
           },
           errorResponse(400, "Missing handle.", { error: { code: "bad_request", message: '"handle" is required and must be a non-empty string.' } }),
           ...SHOPPER_UNAUTHORIZED,
-          REF_MISMATCH,
           DATABASE_UNAVAILABLE,
         ],
         notes: ["The handle is not verified against Shopify, so a typo is stored as-is and simply returns no product when expanded."],
@@ -1235,7 +1183,6 @@ export const API_GROUPS: ApiGroup[] = [
         responses: [
           { status: 200, description: "Remaining handles.", schema: obj({ count: int(), handles: arrayOf(str()) }), example: { count: 1, handles: ["cargo-parachute-pants"] } },
           ...SHOPPER_UNAUTHORIZED,
-          REF_MISMATCH,
           DATABASE_UNAVAILABLE,
         ],
       },
@@ -1245,7 +1192,7 @@ export const API_GROUPS: ApiGroup[] = [
     name: "Orders",
     slug: "orders",
     description:
-      "Checkout and order history for one shopper.\n\nThe shopper is identified by their **bearer token**, sent alongside `X-Agent-Key`, on every route in this tag including `POST /api/orders`. `X-Customer-Ref` is *not* accepted in the token's place: without a token these routes answer 401 `unauthorized`. Sending the ref as well is fine and expected — see the Auth tag.\n\nThe bag is keyed by the ref up to this point, so the first call carrying both hands that bag, and the address book saved with it, over to the signed-in account. Fill the bag with the ref, then check out with the ref and the token together.\n\nPayment is simulated: only the test card 4242 4242 4242 4242 is accepted, and no real charge is made.",
+      "Checkout and order history for one shopper.\n\nThe shopper is identified by their **bearer token**, sent alongside `X-Agent-Key`, on every route in this tag including `POST /api/orders`. Without a token these routes answer 401 `unauthorized`.\n\nThe bag is keyed by the same account, so the token that filled it is the token that checks it out — there is nothing to hand over and no second credential to remember.\n\nPayment is simulated: only the test card 4242 4242 4242 4242 is accepted, and no real charge is made.",
     endpoints: [
       {
         method: "POST",
@@ -1263,14 +1210,6 @@ export const API_GROUPS: ApiGroup[] = [
             description:
               "Optional. Repeating a request with the same key returns the order the first call created instead of placing a second one, and responds 200 rather than 201. Use one key per checkout attempt.",
             example: "checkout-01HQ8-ab12",
-          },
-          {
-            name: "X-Customer-Email",
-            in: "header",
-            type: "string",
-            description:
-              "Optional contact address recorded against the shopper. Contact data only — it never identifies anyone and cannot be used to look up another shopper's data. The order's own email comes from the body.",
-            example: "shopper@example.com",
           },
         ],
         body: [
@@ -1305,7 +1244,6 @@ export const API_GROUPS: ApiGroup[] = [
             },
           }),
           ...SHOPPER_UNAUTHORIZED,
-          REF_MISMATCH,
           DATABASE_UNAVAILABLE,
         ],
         notes: [
@@ -1325,7 +1263,6 @@ export const API_GROUPS: ApiGroup[] = [
         responses: [
           { status: 200, description: "Order history.", schema: obj({ count: int(), orders: arrayOf(ref("Order")) }), example: { count: 1, orders: [ORDER_EXAMPLE] } },
           ...SHOPPER_UNAUTHORIZED,
-          REF_MISMATCH,
           DATABASE_UNAVAILABLE,
         ],
       },
@@ -1343,7 +1280,6 @@ export const API_GROUPS: ApiGroup[] = [
           { status: 200, description: "The order.", schema: obj({ order: ref("Order") }), example: { order: ORDER_EXAMPLE } },
           errorResponse(404, "No such order for this user.", { error: { code: "not_found", message: 'No order "GLW-000" for the signed-in user.' } }),
           ...SHOPPER_UNAUTHORIZED,
-          REF_MISMATCH,
           DATABASE_UNAVAILABLE,
         ],
       },
