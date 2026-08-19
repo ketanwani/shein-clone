@@ -185,7 +185,7 @@ export async function requireAgentSubject(): Promise<AgentSubject> {
  */
 async function provisionCustomer(customerRef: string, email: string | null): Promise<string> {
   const [existing] = await db
-    .select({ userId: agentCustomer.userId, email: agentCustomer.email })
+    .select({ userId: agentCustomer.userId, linkedUserId: agentCustomer.linkedUserId, email: agentCustomer.email })
     .from(agentCustomer)
     .where(eq(agentCustomer.customerRef, customerRef))
     .limit(1)
@@ -197,7 +197,9 @@ async function provisionCustomer(customerRef: string, email: string | null): Pro
         .set({ email, updatedAt: new Date() })
         .where(eq(agentCustomer.customerRef, customerRef))
     }
-    return existing.userId
+    // Once the shopper behind this ref has signed in, the ref names their account. The
+    // synthetic row it started as owns nothing any more — lib/api/adopt.ts moved it all.
+    return existing.linkedUserId ?? existing.userId
   }
 
   const userId = `agent_${randomUUID()}`
@@ -218,12 +220,17 @@ async function provisionCustomer(customerRef: string, email: string | null): Pro
 
   // Two first calls for the same ref can race; whichever insert landed is the winner.
   const [settled] = await db
-    .select({ userId: agentCustomer.userId })
+    .select({ userId: agentCustomer.userId, linkedUserId: agentCustomer.linkedUserId })
     .from(agentCustomer)
     .where(eq(agentCustomer.customerRef, customerRef))
     .limit(1)
 
-  return settled?.userId ?? userId
+  return settled?.linkedUserId ?? settled?.userId ?? userId
+}
+
+/** The ref this request presents, if any. Validates the key; provisions nothing. */
+export async function presentedCustomerRef(): Promise<string | null> {
+  return (await headers()).get(CUSTOMER_REF_HEADER)?.trim() || null
 }
 
 /**
