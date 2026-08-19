@@ -8,6 +8,7 @@ import { auth } from "@/lib/auth"
 import { signOutAction } from "@/app/actions/account"
 import { getOrdersAction } from "@/app/actions/orders"
 import { formatPrice } from "@/lib/utils/format"
+import { productPath } from "@/lib/routes"
 
 export const metadata: Metadata = { title: "My Account — GLOWA" }
 
@@ -93,7 +94,7 @@ export default async function AccountPage() {
                 {order.items.map((item) => (
                   <Link
                     key={item.id}
-                    href={item.productHandle ? `/products/${item.productHandle}` : "/"}
+                    href={item.productHandle ? productPath(item.productHandle) : "/"}
                     className="flex items-center gap-2"
                   >
                     <div className="relative h-14 w-12 shrink-0 overflow-hidden rounded bg-muted">

@@ -1,5 +1,6 @@
 import Link from "next/link"
 import { CATEGORIES } from "@/lib/categories"
+import { collectionPath } from "@/lib/routes"
 
 export function Footer() {
   return (
@@ -18,7 +19,7 @@ export function Footer() {
               {CATEGORIES.slice(0, 6).map((c) => (
                 <li key={c.slug}>
                   <Link
-                    href={`/collections/${c.slug}`}
+                    href={collectionPath(c.slug)}
                     className="text-sm text-muted-foreground hover:text-foreground"
                   >
                     {c.name}

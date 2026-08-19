@@ -7,6 +7,7 @@ import { useWishlist } from "@/components/wishlist/wishlist-provider"
 import { getWishlistProducts } from "@/app/actions/wishlist"
 import { ProductGrid } from "@/components/product/product-grid"
 import type { Product } from "@/lib/shopify/types"
+import { collectionPath } from "@/lib/routes"
 
 export default function WishlistPage() {
   const { items } = useWishlist()
@@ -41,7 +42,7 @@ export default function WishlistPage() {
           <Heart className="h-12 w-12 text-muted-foreground" />
           <p className="text-muted-foreground">Your wishlist is empty.</p>
           <Link
-            href="/collections/new-in"
+            href={collectionPath("new-in")}
             className="mt-2 rounded-full bg-accent px-6 py-2.5 text-sm font-semibold text-accent-foreground"
           >
             Discover Styles

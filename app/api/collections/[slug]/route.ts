@@ -1,6 +1,8 @@
 import { categoryQuery, getCategory } from "@/lib/categories"
 import { getProducts } from "@/lib/shopify/products"
 import { handlePublic, json, notFound, readLimit } from "@/lib/api/http"
+import { absoluteUrl } from "@/lib/api/url"
+import { collectionPath } from "@/lib/routes"
 import { resolveSort } from "@/lib/api/sort"
 
 export async function GET(request: Request, { params }: { params: Promise<{ slug: string }> }) {
@@ -15,7 +17,9 @@ export async function GET(request: Request, { params }: { params: Promise<{ slug
 
     const products = await getProducts({ query: categoryQuery(category), sortKey, reverse, first: limit })
     return json({
-      collection: { slug: category.slug, name: category.name },
+      // Same shape as an entry in GET /api/collections, so a caller can treat the two
+      // interchangeably rather than special-casing which one carries a link.
+      collection: { slug: category.slug, name: category.name, url: absoluteUrl(collectionPath(category.slug)) },
       count: products.length,
       products,
     })

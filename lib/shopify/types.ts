@@ -27,7 +27,16 @@ export type ProductOption = {
 
 export type Product = {
   id: string
+  /** URL slug. Still the lookup key every endpoint takes — `url` is additive to it. */
   handle: string
+  /**
+   * Absolute, https canonical link to this product's page.
+   *
+   * Built from lib/routes.ts so it cannot drift from the route the site renders. Present
+   * on every product, in list responses as well as detail, because chat cards are built
+   * from list results.
+   */
+  url: string
   title: string
   description: string
   descriptionHtml: string

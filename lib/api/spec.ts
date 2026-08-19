@@ -145,7 +145,7 @@ export const SCHEMAS: Record<string, JsonSchema> = {
     "currencyCode",
   ]),
   ProductImage: obj({
-    url: str(),
+    url: str("Absolute https URL, safe to embed directly."),
     altText: nullable(str()),
     width: nullable(int()),
     height: nullable(int()),
@@ -162,6 +162,9 @@ export const SCHEMAS: Record<string, JsonSchema> = {
   Product: obj({
     id: str("Shopify product GID"),
     handle: str("URL-safe slug; the identifier used by these endpoints"),
+    url: str(
+      "Absolute https link to this product's page. Copy it verbatim — do not build one from the handle. Present on every product, in list responses as well as detail, and identical between the two.",
+    ),
     title: str(),
     description: str("Plain text"),
     descriptionHtml: str(),
@@ -297,6 +300,7 @@ export const SCHEMAS: Record<string, JsonSchema> = {
 export const PRODUCT_EXAMPLE = {
   id: "gid://shopify/Product/8123456789",
   handle: "ribbed-knit-mini-dress",
+  url: "https://shein-clone-ruby.vercel.app/products/ribbed-knit-mini-dress",
   title: "Ribbed Knit Mini Dress",
   description: "Bodycon mini dress in soft ribbed knit with a square neckline.",
   descriptionHtml: "<p>Bodycon mini dress in soft ribbed knit with a square neckline.</p>",
@@ -341,6 +345,7 @@ export const PRODUCT_EXAMPLE = {
 const PRODUCT_BRIEF = {
   id: "gid://shopify/Product/8123456789",
   handle: "ribbed-knit-mini-dress",
+  url: "https://shein-clone-ruby.vercel.app/products/ribbed-knit-mini-dress",
   title: "Ribbed Knit Mini Dress",
   productType: "Dresses",
   availableForSale: true,
@@ -827,13 +832,20 @@ export const API_GROUPS: ApiGroup[] = [
             description: "All collections.",
             schema: obj({
               count: int(),
-              collections: arrayOf(obj({ slug: str(), name: str(), filter: obj({ tag: str(), productType: str() }), url: str() })),
+              collections: arrayOf(
+                obj({
+                  slug: str(),
+                  name: str(),
+                  filter: obj({ tag: str(), productType: str() }),
+                  url: str("Absolute https link to the collection's page. Copy it verbatim."),
+                }),
+              ),
             }),
             example: {
               count: 12,
               collections: [
-                { slug: "new-in", name: "New In", filter: { tag: "New In" }, url: "/collections/new-in" },
-                { slug: "dresses", name: "Dresses", filter: { productType: "Dresses" }, url: "/collections/dresses" },
+                { slug: "new-in", name: "New In", filter: { tag: "New In" }, url: "https://shein-clone-ruby.vercel.app/collections/new-in" },
+                { slug: "dresses", name: "Dresses", filter: { productType: "Dresses" }, url: "https://shein-clone-ruby.vercel.app/collections/dresses" },
               ],
             },
             exampleNote: "Truncated to two of the twelve collections.",
@@ -863,8 +875,14 @@ export const API_GROUPS: ApiGroup[] = [
           {
             status: 200,
             description: "Products in the collection.",
-            schema: listResponse({ collection: obj({ slug: str(), name: str() }) }),
-            example: { collection: { slug: "dresses", name: "Dresses" }, count: 1, products: [PRODUCT_BRIEF] },
+            schema: listResponse({
+              collection: obj({
+                slug: str(),
+                name: str(),
+                url: str("Absolute https link to the collection's page. Copy it verbatim."),
+              }),
+            }),
+            example: { collection: { slug: "dresses", name: "Dresses", url: "https://shein-clone-ruby.vercel.app/collections/dresses" }, count: 1, products: [PRODUCT_BRIEF] },
             exampleNote: ABBREVIATED,
           },
           errorResponse(404, "Unknown slug.", {

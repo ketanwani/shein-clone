@@ -7,6 +7,7 @@ import type { Product } from "@/lib/shopify/types"
 import { formatMoney, discountPercent } from "@/lib/utils/format"
 import { useWishlist } from "@/components/wishlist/wishlist-provider"
 import { cn } from "@/lib/utils"
+import { productPath } from "@/lib/routes"
 
 export function ProductCard({ product }: { product: Product }) {
   const { toggle, has } = useWishlist()
@@ -20,7 +21,7 @@ export function ProductCard({ product }: { product: Product }) {
   return (
     <div className="group relative flex flex-col">
       <Link
-        href={`/products/${product.handle}`}
+        href={productPath(product.handle)}
         className="relative block aspect-[3/4] overflow-hidden rounded-lg bg-muted"
       >
         {product.featuredImage ? (
@@ -57,7 +58,7 @@ export function ProductCard({ product }: { product: Product }) {
 
       <div className="mt-2 flex flex-col gap-1">
         <Link
-          href={`/products/${product.handle}`}
+          href={productPath(product.handle)}
           className="line-clamp-2 text-sm leading-snug text-foreground hover:underline"
         >
           {product.title}

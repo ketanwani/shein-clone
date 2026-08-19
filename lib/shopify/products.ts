@@ -1,5 +1,7 @@
 import { shopifyFetch } from "./client"
-import type { Product } from "./types"
+import { absoluteImageUrl, absoluteUrl } from "@/lib/api/url"
+import { productPath } from "@/lib/routes"
+import type { Product, ProductImage } from "./types"
 
 const PRODUCT_FRAGMENT = /* GraphQL */ `
   fragment ProductFields on Product {
@@ -76,16 +78,31 @@ const PRODUCT_FRAGMENT = /* GraphQL */ `
   }
 `
 
-type RawProduct = Omit<Product, "images" | "variants"> & {
-  images: { edges: { node: Product["images"][number] }[] }
+type RawProduct = Omit<Product, "images" | "variants" | "url"> & {
+  images: { edges: { node: ProductImage }[] }
   variants: { edges: { node: Product["variants"][number] }[] }
 }
 
+const withAbsoluteImage = (image: ProductImage): ProductImage => ({
+  ...image,
+  url: absoluteImageUrl(image.url),
+})
+
+/**
+ * The one place a Product is built, which is why `url` is added here rather than in the
+ * route handlers.
+ *
+ * Every catalogue endpoint — search, listing, detail, collection, recommendations — and
+ * the wishlist expansion all funnel through this function, so a product cannot reach a
+ * caller without its link, and a list response cannot disagree with a detail response.
+ */
 function reshape(raw: RawProduct | null): Product | null {
   if (!raw) return null
   return {
     ...raw,
-    images: raw.images.edges.map((e) => e.node),
+    url: absoluteUrl(productPath(raw.handle)),
+    featuredImage: raw.featuredImage ? withAbsoluteImage(raw.featuredImage) : null,
+    images: raw.images.edges.map((e) => withAbsoluteImage(e.node)),
     variants: raw.variants.edges.map((e) => e.node),
   }
 }
