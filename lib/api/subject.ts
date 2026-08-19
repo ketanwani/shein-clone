@@ -18,14 +18,23 @@
 
 import { headers } from "next/headers"
 import { auth } from "@/lib/auth"
-import { assertAgentKey, requireAgentKey, resolveAgentSubject } from "@/lib/api/agent"
+import { assertAgentKey, presentedCustomerRef, requireAgentKey, resolveAgentSubject } from "@/lib/api/agent"
+import { reconcileCustomerRef } from "@/lib/api/adopt"
 import { ApiFailure, assertDatabaseConfigured } from "@/lib/api/http"
 
 const SIGN_IN_HINT =
   "Agents: send X-Agent-Key and X-Customer-Ref. Browsers: sign in, or POST /api/auth/sign-in/email with {email, password} and send the returned token as `Authorization: Bearer <token>`."
 
+/**
+ * Written for the agent, not for a developer reading docs.
+ *
+ * An LLM reads this and decides what to do next. "Requires authentication" reads as a
+ * wall it cannot get past, and it hands off to a human — which on the integration side
+ * silences the conversation for 24 hours. So it says, plainly, that this is recoverable
+ * and exactly which two calls recover it.
+ */
 const BEARER_HINT =
-  "Send `Authorization: Bearer <token>` using the token from POST /api/auth/sign-in/email-otp (found at `data.token`), together with X-Agent-Key. The two are checked independently and neither substitutes for the other."
+  "This is expected and recoverable — do not hand off to a human. The shopper is not signed in yet, or their token expired. Sign them in: POST /api/auth/email-otp/send-verification-otp with {email, type:\"sign-in\"}, ask the shopper for the 6-digit code they receive, then POST /api/auth/sign-in/email-otp with {email, otp}. Take data.token from the response, retry this call with `Authorization: Bearer <token>` plus X-Agent-Key, and continue."
 
 export type Subject = {
   userId: string
@@ -61,7 +70,13 @@ export async function resolveSubject(): Promise<Subject | null> {
   const envelope = await assertAgentKey()
 
   const user = await sessionUser()
-  if (user) return { userId: user.id, viaAgent: false, email: user.email }
+  if (user) {
+    // Both credentials present: hand the ref's shopper over to the account, or refuse if
+    // the ref already belongs to someone else. Must happen before anything reads the
+    // bag, or checkout resolves an empty one.
+    await reconcileCustomerRef(envelope?.customerRef ?? null, user.id)
+    return { userId: user.id, viaAgent: false, email: user.email }
+  }
 
   if (!envelope) return null
 
@@ -101,5 +116,11 @@ export async function requireSessionSubject(): Promise<Subject> {
   if (!user) {
     throw new ApiFailure(401, "unauthorized", "This endpoint requires a signed-in shopper.", BEARER_HINT)
   }
+
+  // The integration sends X-Customer-Ref on every call, so these routes see all three
+  // credentials. The token decides identity; the ref is reconciled against it so a pair
+  // naming two different shoppers is an error rather than a quiet preference.
+  await reconcileCustomerRef(await presentedCustomerRef(), user.id)
+
   return { userId: user.id, viaAgent: false, email: user.email }
 }

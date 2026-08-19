@@ -16,15 +16,27 @@ import { callerFingerprint, consume } from "@/lib/api/rate-limit"
 /**
  * Neither limit depends on whether the account exists, so neither leaks that.
  *
- * The per-email budget is the one doing real work: it matches the code lifetime, so a
- * shopper can ask again if the first never arrives, and an inbox cannot be used as a
- * mailer. The per-source budget is only a coarse backstop against a single host walking
- * an address list, and is deliberately loose — every shopper the integration signs in
- * arrives from the same handful of Meta egress addresses, so a tight limit here would
- * throttle unrelated shoppers rather than an attacker.
+ * The per-email budget does the real work: it matches the code lifetime, so a shopper
+ * can ask again if the first never arrives, and no inbox can be used as a mailer. It is
+ * per address, so one shopper asking too often never affects another.
  */
 const PER_EMAIL = { max: 3, windowMs: 10 * 60 * 1000 }
-const PER_SOURCE = { max: 100, windowMs: 10 * 60 * 1000 }
+
+/**
+ * The per-source ceiling: a runaway backstop, not an abuse control.
+ *
+ * Every shopper signing in through the Meta connector arrives from the same small set of
+ * egress addresses, so counting by IP counts aggregate traffic rather than misbehaviour.
+ * The old 100 per 10 minutes was low enough that ordinary shared-egress load would trip
+ * it and start turning real shoppers away — while an attacker holding a valid key and a
+ * spread of addresses walked straight past it.
+ *
+ * Exempting valid keys outright would make this dead code, since requireAgentKey has
+ * already rejected everything without one before we get here. So it stays, raised to a
+ * sustained request per second from a single address: far above what shared egress
+ * produces, low enough to cap a client stuck in a retry loop.
+ */
+const PER_SOURCE = { max: 600, windowMs: 10 * 60 * 1000 }
 
 export async function POST(request: Request) {
   return handle(request, async () => {

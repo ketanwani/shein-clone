@@ -71,6 +71,14 @@ export type SignInResult = {
   token: string
   /** ISO 8601, UTC. When this passes, re-run the sign-in flow. */
   expiresAt: string
+  /**
+   * The same instant as `expiresAt`, in whole seconds since the epoch.
+   *
+   * Both are published because their consumers cannot read each other's format: the
+   * browser client wants the ISO string, and the agent platform's expiry handling takes
+   * only an absolute unix timestamp. Seconds, not milliseconds.
+   */
+  expiresAtUnix: number
   user: unknown
 }
 
@@ -85,9 +93,12 @@ export type SignInResult = {
 export async function signInWithOtp(email: string, otp: string): Promise<SignInResult> {
   try {
     const result = await auth.api.signInEmailOTP({ body: { email, otp: await redeemableCode(email, otp) } })
+    const expiresAt = await sessionExpiry(result.token)
     return {
       token: result.token,
-      expiresAt: await sessionExpiry(result.token),
+      expiresAt: expiresAt.toISOString(),
+      // Floored, so the value never claims the session lasts longer than it does.
+      expiresAtUnix: Math.floor(expiresAt.getTime() / 1000),
       user: result.user,
     }
   } catch (err) {
@@ -128,11 +139,11 @@ async function redeemableCode(email: string, presented: string): Promise<string>
  * The fallback covers the lookup coming back empty: the integration branches on this
  * field to decide when to re-authenticate, so a slightly early estimate beats no field.
  */
-async function sessionExpiry(token: string): Promise<string> {
+async function sessionExpiry(token: string): Promise<Date> {
   const result = await auth.api.getSession({
     headers: new Headers({ authorization: `Bearer ${token}` }),
   })
 
   const expiresAt = result?.session?.expiresAt ?? new Date(Date.now() + SESSION_EXPIRES_IN_SECONDS * 1000)
-  return new Date(expiresAt).toISOString()
+  return new Date(expiresAt)
 }

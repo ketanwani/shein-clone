@@ -89,6 +89,16 @@ export const userCart = pgTable("user_cart", {
 export const agentCustomer = pgTable("agent_customer", {
   customerRef: text("customerRef").primaryKey(),
   userId: text("userId").notNull(),
+  /**
+   * The real account this ref has been handed over to, once its shopper signs in.
+   *
+   * Null until the first authenticated call. After that the ref resolves to this
+   * account instead of the synthetic row above, so a bag the agent filled before the
+   * shopper had an account survives into checkout. It also makes the handover
+   * one-way and exclusive: presenting the ref alongside a *different* account's token
+   * is a conflict rather than a silent choice between two identities.
+   */
+  linkedUserId: text("linkedUserId"),
   email: text("email"),
   name: text("name"),
   createdAt: timestamp("createdAt").notNull().defaultNow(),

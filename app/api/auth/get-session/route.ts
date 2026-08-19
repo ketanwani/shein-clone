@@ -25,7 +25,7 @@ export async function GET(request: Request) {
         401,
         "unauthorized",
         "No active session for this token.",
-        "The token is missing, malformed or expired. Run POST /api/auth/sign-in/email-otp again.",
+        'This is expected and recoverable — do not hand off to a human. The token is missing, malformed or expired. Sign the shopper in again: POST /api/auth/email-otp/send-verification-otp with {email, type:"sign-in"}, ask them for the 6-digit code, then POST /api/auth/sign-in/email-otp with {email, otp} and use the new data.token.',
       )
     }
 

@@ -457,7 +457,7 @@ const NO_SHOPPER_TOKEN = errorResponse(401, "The bearer token is missing, malfor
   error: {
     code: "unauthorized",
     message: "This endpoint requires a signed-in shopper.",
-    hint: "Send `Authorization: Bearer <token>` using the token from POST /api/auth/sign-in/email-otp (found at `data.token`), together with X-Agent-Key. The two are checked independently and neither substitutes for the other.",
+    hint: "This is expected and recoverable \u2014 do not hand off to a human. The shopper is not signed in yet, or their token expired. Sign them in: POST /api/auth/email-otp/send-verification-otp with {email, type:\"sign-in\"}, ask the shopper for the 6-digit code they receive, then POST /api/auth/sign-in/email-otp with {email, otp}. Take data.token from the response, retry this call with `Authorization: Bearer <token>` plus X-Agent-Key, and continue.",
   },
 })
 
@@ -471,6 +471,23 @@ const NO_AGENT_KEY = errorResponse(401, "X-Agent-Key is missing or wrong, whatev
 })
 
 const SHOPPER_UNAUTHORIZED: ApiResponse[] = [NO_SHOPPER_TOKEN, NO_AGENT_KEY]
+
+/**
+ * Returned wherever an X-Customer-Ref and a bearer token can arrive together and name
+ * two different shoppers. Answering by preferring one of them would leave the agent
+ * unable to tell whose data it just read, so it is an error instead.
+ */
+const REF_MISMATCH = errorResponse(
+  409,
+  "X-Customer-Ref and the bearer token name different shoppers.",
+  {
+    error: {
+      code: "customer_ref_mismatch",
+      message: "This X-Customer-Ref belongs to a different shopper than the bearer token.",
+      hint: "The ref was already handed over to another account. Send the token for that shopper, or start a new conversation with a fresh X-Customer-Ref. Do not retry with the same pair.",
+    },
+  },
+)
 
 const CUSTOMER_REF_REQUIRED = errorResponse(400, "The agent key checked out but no shopper was named.", {
   error: {
@@ -517,7 +534,7 @@ export const API_GROUPS: ApiGroup[] = [
     name: "Auth",
     slug: "auth",
     description:
-      "Two ways in, for two different callers.\n\n**Email OTP, for an agent acting for one shopper.** `send-verification-otp` mails a 6-digit code; `sign-in/email-otp` exchanges it for a session token at `data.token`, valid 7 days. Send that token as `Authorization: Bearer <token>` on the Wishlist and Orders calls, alongside `X-Agent-Key`. No cookie is involved at any point, and the account is created when a correct code arrives — never when one is requested — so a mistyped address leaves nothing behind. No refresh token is issued: re-run this flow when `data.expiresAt` passes.\n\n**Email and password, for the website's own login forms.** Unchanged, and still owned by Better Auth, so those two routes return flat `{message, code}` errors rather than the storefront's nested `{error: {...}}` shape.\n\nThe agent's other credential, `X-Customer-Ref`, still identifies the shopper on the Cart and Customer calls, where the agent is filling in details before there is an account. It is **not** accepted on the wishlist or the order history: there, only a token the shopper themselves obtained will do.",
+      "Two ways in, for two different callers.\n\n**Email OTP, for an agent acting for one shopper.** `send-verification-otp` mails a 6-digit code; `sign-in/email-otp` exchanges it for a session token at `data.token`, valid 7 days. Send that token as `Authorization: Bearer <token>` on the Wishlist and Orders calls, alongside `X-Agent-Key`. No cookie is involved at any point, and the account is created when a correct code arrives — never when one is requested — so a mistyped address leaves nothing behind. No refresh token is issued: re-run this flow when `data.expiresAt` passes.\n\n**Email and password, for the website's own login forms.** Unchanged, and still owned by Better Auth, so those two routes return flat `{message, code}` errors rather than the storefront's nested `{error: {...}}` shape.\n\nThe agent's other credential, `X-Customer-Ref`, still identifies the shopper on the Cart and Customer calls, where the agent is filling in details before there is an account. It is **not** accepted on the wishlist or the order history: there, only a token the shopper themselves obtained will do.\n\n**Sending all three credentials on every call is supported and expected.** `X-Agent-Key` proves the caller, the bearer token decides *identity*, and `X-Customer-Ref` is reconciled against it rather than competing with it. The first call carrying both a ref and a token hands that ref's shopper — bag, addresses, profile, order history — over to the account, after which the ref names that account. A ref already handed to one account, presented with another account's token, is 409 `customer_ref_mismatch`: an explicit error, never a silent pick, and it never returns the ref-holder's data.",
     endpoints: [
       {
         method: "POST",
@@ -553,7 +570,9 @@ export const API_GROUPS: ApiGroup[] = [
         ],
         notes: [
           "The code is never returned in the body. An agent holding it could sign the shopper in without them, which is exactly the confirmation step this flow exists to get.",
-          "Limited to 3 codes per address per 10 minutes. A separate, much looser per-source limit is only a backstop — every shopper the integration signs in shares the same egress addresses.",
+          "**3 codes per email address per 10 minutes.** This is the limit that matters, and it is per address, so one shopper asking repeatedly never affects another.",
+          "**600 requests per source IP per 10 minutes** — a sustained one per second — as a runaway backstop only. It was 100 before, which shared egress could plausibly reach; every shopper the integration signs in arrives from the same handful of Meta addresses, so this counter tracks aggregate traffic rather than misbehaviour. It is deliberately far above normal load. If you ever see 429 with this window while individual shoppers are within their 3, tell us and it goes up again.",
+          "Exceeding either returns 429 `rate_limited` with a `hint` naming the seconds to wait. Both counters are in-process, so they are per server instance.",
           "No transactional email provider is configured on this deployment, so nothing is actually delivered. Set DEMO_OTP_CODE to make sign-in accept one fixed code instead; see the sign-in endpoint.",
         ],
       },
@@ -576,8 +595,15 @@ export const API_GROUPS: ApiGroup[] = [
             schema: obj(
               {
                 data: obj(
-                  { token: str("Session token. Send as `Authorization: Bearer <token>`."), expiresAt: str("ISO 8601, UTC."), user: ref("User") },
-                  ["token", "expiresAt", "user"],
+                  {
+                    token: str("Session token. Send as `Authorization: Bearer <token>`."),
+                    expiresAt: str("Expiry as an ISO 8601 timestamp, UTC. For clients that parse dates."),
+                    expiresAtUnix: int(
+                      "The same instant in whole seconds since the epoch — not milliseconds. For clients whose expiry handling takes an absolute unix timestamp and cannot parse ISO.",
+                    ),
+                    user: ref("User"),
+                  },
+                  ["token", "expiresAt", "expiresAtUnix", "user"],
                 ),
               },
               ["data"],
@@ -586,6 +612,7 @@ export const API_GROUPS: ApiGroup[] = [
               data: {
                 token: "V1DSf3g8PL2rp9CNtFc6KFaZSypGM82Y",
                 expiresAt: "2026-08-26T09:41:12.104Z",
+                expiresAtUnix: 1787739672,
                 user: {
                   id: "ST6bZD9LrjCz9p43z45Exn7xyOA1Fx12",
                   email: "ada@example.com",
@@ -609,7 +636,8 @@ export const API_GROUPS: ApiGroup[] = [
           DATABASE_UNAVAILABLE,
         ],
         notes: [
-          "The token lives at `data.token` and the expiry at `data.expiresAt`. Both paths are part of the contract — an integration extracts the token by path, and silently stops capturing it if the shape moves.",
+          "The token lives at `data.token`. Both expiry fields describe the same instant: `data.expiresAt` is ISO 8601 for clients that parse dates, and `data.expiresAtUnix` is seconds since the epoch — not milliseconds — for clients whose expiry handling takes an absolute unix timestamp. Use whichever one your platform understands; neither is derived from the other at read time.",
+          "These paths are part of the contract. An integration extracts the token by literal path and silently stops capturing it if the shape moves.",
           "`data.expiresAt` is read back from the session the server will actually enforce, not computed from the configured window.",
           "When DEMO_OTP_CODE is set on the server, that one fixed value is accepted in addition to a genuine code. It changes nothing else: the account is still created here, the response shape is identical, and failures are still uniform. Unset, the fixed value is not special-cased anywhere.",
         ],
@@ -704,7 +732,7 @@ export const API_GROUPS: ApiGroup[] = [
             error: {
               code: "unauthorized",
               message: "No active session for this token.",
-              hint: "The token is missing, malformed or expired. Run POST /api/auth/sign-in/email-otp again.",
+              hint: "This is expected and recoverable \u2014 do not hand off to a human. The shopper is not signed in yet, or their token expired. Sign them in: POST /api/auth/email-otp/send-verification-otp with {email, type:\"sign-in\"}, ask the shopper for the 6-digit code they receive, then POST /api/auth/sign-in/email-otp with {email, otp}. Take data.token from the response, retry this call with `Authorization: Bearer <token>` plus X-Agent-Key, and continue.",
             },
           }),
           NO_AGENT_KEY,
@@ -1043,7 +1071,7 @@ export const API_GROUPS: ApiGroup[] = [
     name: "Cart",
     slug: "cart",
     description:
-      "Three ways to identify the bag, all backed by the same server-side store. **Agents** send `X-Agent-Key` and `X-Customer-Ref`: the bag is keyed by the customer ref, so no cookie is involved and every call is independent — this is the path to use from a chat integration. **Signed-in browsers** send a bearer token or session cookie and the bag is keyed by the account. **Anonymous browsers** get an httpOnly `cartId` cookie on the first add, which the browser returns automatically. An anonymous bag is adopted by the account on the first authenticated call, so signing in mid-shop loses nothing.",
+      "Three ways to identify the bag, all backed by the same server-side store. **Agents** send `X-Agent-Key` and `X-Customer-Ref`: the bag is keyed by the customer ref, so no cookie is involved and every call is independent — this is the path to use from a chat integration. **Signed-in browsers** send a bearer token or session cookie and the bag is keyed by the account. **Anonymous browsers** get an httpOnly `cartId` cookie on the first add, which the browser returns automatically. An anonymous bag is adopted by the account on the first authenticated call, so signing in mid-shop loses nothing.\n\nA **ref-keyed bag is adopted the same way**. The first call carrying both `X-Customer-Ref` and a bearer token hands the ref's shopper over to the account — bag, saved addresses, profile and any order history — and the ref names that account from then on. Without this an agent would fill a bag under the ref and find it empty at checkout, because `POST /api/orders` resolves the bag by account. The handover is one-way and exclusive: presenting a ref that already belongs to one account together with a different account's token is 409 `customer_ref_mismatch`, never a silent choice between the two.",
     endpoints: [
       {
         method: "GET",
@@ -1060,6 +1088,7 @@ export const API_GROUPS: ApiGroup[] = [
             schema: obj({ cart: nullable(ref("Cart")) }),
             example: { cart: CART_EXAMPLE },
           },
+          REF_MISMATCH,
         ],
       },
       {
@@ -1086,6 +1115,7 @@ export const API_GROUPS: ApiGroup[] = [
             error: { code: "bad_request", message: '"merchandiseId" is required and must be a non-empty string.' },
           }),
           SHOPIFY_UNAVAILABLE,
+          REF_MISMATCH,
         ],
         notes: [
           "Agents: nothing to persist between calls. Send the same X-Customer-Ref and the bag is already there.",
@@ -1114,6 +1144,7 @@ export const API_GROUPS: ApiGroup[] = [
           errorResponse(400, "Missing or invalid lineId/quantity.", {
             error: { code: "bad_request", message: '"quantity" must be an integer between 0 and 20.' },
           }),
+          REF_MISMATCH,
         ],
       },
       {
@@ -1124,7 +1155,10 @@ export const API_GROUPS: ApiGroup[] = [
           "Abandons the bag — the stored reference for an agent's customer ref or a signed-in account, and the cartId cookie for an anonymous browser. The next add starts a fresh one.",
         auth: "cart",
         params: AGENT_HEADERS,
-        responses: [{ status: 200, description: "Bag cleared.", schema: obj({ cart: nullable(ref("Cart")) }), example: { cart: null } }],
+        responses: [
+          { status: 200, description: "Bag cleared.", schema: obj({ cart: nullable(ref("Cart")) }), example: { cart: null } },
+          REF_MISMATCH,
+        ],
       },
     ],
   },
@@ -1132,7 +1166,7 @@ export const API_GROUPS: ApiGroup[] = [
     name: "Wishlist",
     slug: "wishlist",
     description:
-      "Saved product handles for one shopper, stored in Postgres. Identified either by the agent's `X-Customer-Ref` or by a signed-in session — two customer refs never see each other's list.",
+      "Saved product handles for one shopper, stored in Postgres.\n\nThe shopper is identified by their **bearer token**, sent alongside `X-Agent-Key`. `X-Customer-Ref` is *not* accepted in the token's place here: a ref is the caller asserting who it is acting for, and on someone's saved items that would make the shared secret enough to read any shopper you can name. Without a token these routes answer 401 `unauthorized`, whatever else the request carries.\n\nSending the ref *as well as* the token is fine and expected — see the Auth tag for how the two are reconciled.",
     endpoints: [
       {
         method: "GET",
@@ -1160,6 +1194,7 @@ export const API_GROUPS: ApiGroup[] = [
             exampleNote: `${ABBREVIATED} The products key is present only with expand=products.`,
           },
           ...SHOPPER_UNAUTHORIZED,
+          REF_MISMATCH,
           DATABASE_UNAVAILABLE,
         ],
       },
@@ -1182,6 +1217,7 @@ export const API_GROUPS: ApiGroup[] = [
           },
           errorResponse(400, "Missing handle.", { error: { code: "bad_request", message: '"handle" is required and must be a non-empty string.' } }),
           ...SHOPPER_UNAUTHORIZED,
+          REF_MISMATCH,
           DATABASE_UNAVAILABLE,
         ],
         notes: ["The handle is not verified against Shopify, so a typo is stored as-is and simply returns no product when expanded."],
@@ -1199,6 +1235,7 @@ export const API_GROUPS: ApiGroup[] = [
         responses: [
           { status: 200, description: "Remaining handles.", schema: obj({ count: int(), handles: arrayOf(str()) }), example: { count: 1, handles: ["cargo-parachute-pants"] } },
           ...SHOPPER_UNAUTHORIZED,
+          REF_MISMATCH,
           DATABASE_UNAVAILABLE,
         ],
       },
@@ -1208,7 +1245,7 @@ export const API_GROUPS: ApiGroup[] = [
     name: "Orders",
     slug: "orders",
     description:
-      "Checkout and order history for one shopper, identified either by the agent's `X-Customer-Ref` or by a signed-in session. Payment is simulated: only the test card 4242 4242 4242 4242 is accepted, and no real charge is made.",
+      "Checkout and order history for one shopper.\n\nThe shopper is identified by their **bearer token**, sent alongside `X-Agent-Key`, on every route in this tag including `POST /api/orders`. `X-Customer-Ref` is *not* accepted in the token's place: without a token these routes answer 401 `unauthorized`. Sending the ref as well is fine and expected — see the Auth tag.\n\nThe bag is keyed by the ref up to this point, so the first call carrying both hands that bag, and the address book saved with it, over to the signed-in account. Fill the bag with the ref, then check out with the ref and the token together.\n\nPayment is simulated: only the test card 4242 4242 4242 4242 is accepted, and no real charge is made.",
     endpoints: [
       {
         method: "POST",
@@ -1268,6 +1305,7 @@ export const API_GROUPS: ApiGroup[] = [
             },
           }),
           ...SHOPPER_UNAUTHORIZED,
+          REF_MISMATCH,
           DATABASE_UNAVAILABLE,
         ],
         notes: [
@@ -1287,6 +1325,7 @@ export const API_GROUPS: ApiGroup[] = [
         responses: [
           { status: 200, description: "Order history.", schema: obj({ count: int(), orders: arrayOf(ref("Order")) }), example: { count: 1, orders: [ORDER_EXAMPLE] } },
           ...SHOPPER_UNAUTHORIZED,
+          REF_MISMATCH,
           DATABASE_UNAVAILABLE,
         ],
       },
@@ -1304,6 +1343,7 @@ export const API_GROUPS: ApiGroup[] = [
           { status: 200, description: "The order.", schema: obj({ order: ref("Order") }), example: { order: ORDER_EXAMPLE } },
           errorResponse(404, "No such order for this user.", { error: { code: "not_found", message: 'No order "GLW-000" for the signed-in user.' } }),
           ...SHOPPER_UNAUTHORIZED,
+          REF_MISMATCH,
           DATABASE_UNAVAILABLE,
         ],
       },
