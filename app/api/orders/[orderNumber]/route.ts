@@ -1,10 +1,10 @@
 import { getOrderByNumberAction } from "@/app/actions/orders"
 import { handle, json, notFound } from "@/lib/api/http"
-import { requireSubject } from "@/lib/api/subject"
+import { requireSessionSubject } from "@/lib/api/subject"
 
 export async function GET(request: Request, { params }: { params: Promise<{ orderNumber: string }> }) {
   return handle(request, async () => {
-    await requireSubject()
+    await requireSessionSubject()
     const { orderNumber } = await params
 
     const order = await getOrderByNumberAction(orderNumber)
