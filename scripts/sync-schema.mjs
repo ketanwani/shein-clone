@@ -2,8 +2,9 @@
 /**
  * Brings a database up to lib/db/schema.ts, without dropping anything.
  *
- *   DATABASE_URL=... node scripts/sync-schema.mjs --dry-run
- *   DATABASE_URL=... node scripts/sync-schema.mjs
+ *   DATABASE_URL=... node scripts/sync-schema.mjs --check     # read-only: what is missing
+ *   DATABASE_URL=... node scripts/sync-schema.mjs --dry-run   # what it would run
+ *   DATABASE_URL=... node scripts/sync-schema.mjs             # apply
  *
  * `drizzle-kit push` is the normal tool and remains so. This exists for the case it
  * cannot handle unattended: a database several changes behind, where push has to ask
@@ -19,6 +20,7 @@
 import { Pool } from "pg"
 
 const DRY_RUN = process.argv.includes("--dry-run")
+const CHECK = process.argv.includes("--check")
 
 if (!process.env.DATABASE_URL) {
   console.error("DATABASE_URL is not set.")
@@ -176,9 +178,95 @@ const CONSTRAINTS = [
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL })
 
+/** Every table and column the current schema expects, for the read-only --check report. */
+const EXPECTED = {
+  user: ["id", "name", "email", "emailVerified", "image", "createdAt", "updatedAt"],
+  session: ["id", "expiresAt", "token", "createdAt", "updatedAt", "ipAddress", "userAgent", "userId"],
+  account: ["id", "accountId", "providerId", "userId", "accessToken", "refreshToken", "idToken",
+            "accessTokenExpiresAt", "refreshTokenExpiresAt", "scope", "password", "createdAt", "updatedAt"],
+  verification: ["id", "identifier", "value", "expiresAt", "createdAt", "updatedAt"],
+  wishlist_item: ["id", "userId", "productHandle", "createdAt"],
+  user_cart: ["userId", "cartId", "updatedAt"],
+  customer_profile: ["userId", "email", "name", "createdAt", "updatedAt"],
+  customer_address: ["id", "userId", "label", "line1", "city", "zip", "country", "isDefault", "createdAt"],
+  order_idempotency: ["userId", "key", "orderNumber", "createdAt"],
+  order: ["id", "userId", "orderNumber", "email", "shippingName", "shippingAddress", "shippingCity",
+          "shippingZip", "shippingCountry", "subtotal", "shipping", "tax", "total", "currency",
+          "cardLast4", "status", "addressId", "createdAt"],
+  order_item: ["id", "orderId", "title", "variantTitle", "quantity", "price", "imageUrl", "productHandle"],
+}
+
+const EXPECTED_INDEXES = ["wishlist_item_user_handle_idx"]
+
+/**
+ * Reports drift without touching anything. Safe to point at production, which is the
+ * point: see what is missing before deciding to change it.
+ */
+async function check() {
+  const { rows: cols } = await pool.query(
+    "SELECT table_name, column_name FROM information_schema.columns WHERE table_schema = 'public'",
+  )
+  const present = new Map()
+  for (const { table_name, column_name } of cols) {
+    if (!present.has(table_name)) present.set(table_name, new Set())
+    present.get(table_name).add(column_name)
+  }
+
+  const { rows: idx } = await pool.query("SELECT indexname FROM pg_indexes WHERE schemaname = 'public'")
+  const indexes = new Set(idx.map((r) => r.indexname))
+
+  let drift = 0
+  for (const [table, columns] of Object.entries(EXPECTED)) {
+    if (!present.has(table)) {
+      console.log(`  MISSING TABLE   ${table}`)
+      drift++
+      continue
+    }
+    const missing = columns.filter((c) => !present.get(table).has(c))
+    if (missing.length) {
+      console.log(`  MISSING COLUMNS ${table}: ${missing.join(", ")}`)
+      drift += missing.length
+    }
+  }
+  for (const name of EXPECTED_INDEXES) {
+    if (!indexes.has(name)) {
+      console.log(`  MISSING INDEX   ${name}`)
+      drift++
+    }
+  }
+
+  // Not drift, but it decides the deploy order, so it is worth surfacing here.
+  if (present.has("agent_customer")) {
+    console.log("  NOTE            agent_customer still present — the deployed build still uses it.")
+    console.log("                  Do NOT run drop-customer-refs.mjs until the removal is deployed.")
+  }
+
+  // The one thing that can make a sync fail part-way.
+  if (present.has("wishlist_item") && !indexes.has("wishlist_item_user_handle_idx")) {
+    const { rows } = await pool.query(
+      `SELECT count(*)::int AS n FROM (
+         SELECT "userId", "productHandle" FROM wishlist_item
+         GROUP BY 1, 2 HAVING count(*) > 1
+       ) d`,
+    )
+    if (rows[0].n > 0) {
+      console.log(`  BLOCKER         ${rows[0].n} duplicate (userId, productHandle) wishlist rows.`)
+      console.log("                  The unique index cannot be created until these are cleared.")
+    }
+  }
+
+  console.log(drift === 0 ? "\n  schema is up to date." : `\n  ${drift} item(s) missing. Run without --check to apply.`)
+}
+
 const label = (sql) => sql.trim().split("\n")[0].trim().replace(/\s+/g, " ").slice(0, 72)
 
 async function main() {
+  if (CHECK) {
+    console.log("checking schema (read-only)\n")
+    await check()
+    return
+  }
+
   console.log(`${DRY_RUN ? "[dry run] " : ""}syncing schema\n`)
 
   for (const sql of STATEMENTS) {
