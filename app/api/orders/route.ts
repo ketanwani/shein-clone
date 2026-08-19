@@ -1,10 +1,10 @@
 import { getOrderByNumberAction, getOrdersAction, placeOrderAction } from "@/app/actions/orders"
 import { ApiFailure, handle, json, readJsonBody, readOptionalString, readString } from "@/lib/api/http"
-import { requireSubject } from "@/lib/api/subject"
+import { requireSessionSubject } from "@/lib/api/subject"
 
 export async function GET(request: Request) {
   return handle(request, async () => {
-    await requireSubject()
+    await requireSessionSubject()
     const orders = await getOrdersAction()
     return json({ count: orders.length, orders })
   })
@@ -16,7 +16,7 @@ export async function GET(request: Request) {
  */
 export async function POST(request: Request) {
   return handle(request, async () => {
-    await requireSubject()
+    await requireSessionSubject()
     const body = await readJsonBody(request)
 
     // Shipping details are optional here: a returning shopper sends only address_id,

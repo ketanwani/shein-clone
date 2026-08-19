@@ -26,11 +26,19 @@ function operationId(endpoint: ApiEndpoint) {
 // Separate objects in the array are alternatives (OR).
 const AGENT_REQUIREMENT = { agentKey: [], customerRef: [] }
 
+// Both credentials are required together, so they share one requirement object (AND).
+// There is no second entry, because there is no alternative — that is the point.
+const SHOPPER_REQUIREMENT = { agentKey: [], bearerAuth: [] }
+
 function security(endpoint: ApiEndpoint) {
   // Better Auth owns these and does not read the agent headers.
   if (endpoint.auth === "bearer") return [{ bearerAuth: [] }]
   // Agent-only: no browser equivalent, so no session alternative.
   if (endpoint.auth === "agent") return [AGENT_REQUIREMENT]
+  // Sign-in: the caller proves itself, and there is no shopper to name yet.
+  if (endpoint.auth === "agentKey") return [{ agentKey: [] }]
+  // The shared secret AND the shopper's own token. Not alternatives.
+  if (endpoint.auth === "shopper") return [SHOPPER_REQUIREMENT]
   // Agent headers or a signed-in session.
   if (endpoint.auth === "session") return [AGENT_REQUIREMENT, { bearerAuth: [] }]
   // Same, plus the anonymous browser case — {} means "no credentials also works".
@@ -41,7 +49,7 @@ function security(endpoint: ApiEndpoint) {
 // Headers that back a security scheme must not also appear as parameters — OpenAPI
 // treats that as a duplicate declaration. They stay in spec.ts so the human-readable
 // docs can show them inline.
-const SECURITY_HEADERS = new Set(["x-agent-key", "x-customer-ref"])
+const SECURITY_HEADERS = new Set(["x-agent-key", "x-customer-ref", "authorization"])
 
 function documentedParams(endpoint: ApiEndpoint) {
   return (endpoint.params ?? []).filter((param) => !SECURITY_HEADERS.has(param.name.toLowerCase()))
@@ -162,7 +170,7 @@ export function buildOpenApiDocument(baseUrl = DEFAULT_BASE_URL) {
       title: API_TITLE,
       version: API_VERSION,
       description:
-        "REST surface of the GLOWA storefront, intended for AI agent integration. Catalogue reads are public. For everything user-scoped — bag, wishlist, orders — a trusted agent sends X-Agent-Key (its shared secret) and X-Customer-Ref (an opaque, stable id for the shopper it is acting for); every call is independent, so no cookie jar and no shopper sign-in are needed. Browser clients keep using a session cookie or bearer token instead. POST /api/orders accepts an Idempotency-Key so retries cannot buy twice. Payment is simulated — only the test card 4242424242424242 is accepted.",
+        "REST surface of the GLOWA storefront, intended for AI agent integration. Catalogue reads are public.\n\nEverything else needs X-Agent-Key, the shared secret proving the caller is the GLOWA agent. What identifies the *shopper* depends on how much is being asked. For the bag and the customer profile it is X-Customer-Ref, an opaque per-conversation id the agent asserts. For the wishlist and the order history it is a bearer token the shopper obtained themselves, by receiving a code at their address and returning it: POST /api/auth/email-otp/send-verification-otp, then POST /api/auth/sign-in/email-otp, which returns the token at `data.token` and its expiry at `data.expiresAt`. Both credentials are then sent together and checked independently — a valid token with no agent key is rejected, and so is an agent key with no token. A ref is not accepted in the token's place, or holding the shared secret would be enough to read any named shopper's history.\n\nEvery call is independent and no cookie jar is required. Browser clients keep using a session cookie. POST /api/orders accepts an Idempotency-Key so retries cannot buy twice. Payment is simulated — only the test card 4242424242424242 is accepted.",
     },
     servers: [{ url: baseUrl, description: "Local development" }],
     tags: API_GROUPS.map((group) => ({ name: group.name, description: group.description })),
@@ -188,7 +196,7 @@ export function buildOpenApiDocument(baseUrl = DEFAULT_BASE_URL) {
           type: "http",
           scheme: "bearer",
           description:
-            "Session token from POST /api/auth/sign-in/email, sent as `Authorization: Bearer <token>`. Valid for 7 days. Browser clients only — agents use agentKey with customerRef and need no token.",
+            "Session token, sent as `Authorization: Bearer <token>`. Valid for 7 days, and no refresh token is issued — re-run sign-in when it expires. An agent gets one for a named shopper from POST /api/auth/sign-in/email-otp, where it is at `data.token` with its expiry at `data.expiresAt`; the website's own password login at POST /api/auth/sign-in/email also returns one. On the wishlist and orders this is required *in addition to* agentKey, and X-Customer-Ref is not accepted in its place.",
         },
         cartCookie: {
           type: "apiKey",

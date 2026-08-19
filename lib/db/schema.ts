@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, boolean, serial, integer, numeric, primaryKey } from "drizzle-orm/pg-core"
+import { pgTable, text, timestamp, boolean, serial, integer, numeric, primaryKey, uniqueIndex } from "drizzle-orm/pg-core"
 
 // --- Better Auth required tables -------------------------------------------
 // Column names are camelCase to match Better Auth's defaults. Do not rename.
@@ -56,12 +56,20 @@ export const verification = pgTable("verification", {
 // --- App tables ------------------------------------------------------------
 
 // Wishlist: one row per (user, product handle). Scoped by userId.
-export const wishlistItem = pgTable("wishlist_item", {
-  id: serial("id").primaryKey(),
-  userId: text("userId").notNull(),
-  productHandle: text("productHandle").notNull(),
-  createdAt: timestamp("createdAt").notNull().defaultNow(),
-})
+//
+// The unique index is what makes saving idempotent. Agents retry, and shoppers ask for
+// the same dress twice; without it the onConflictDoNothing in addToServerWishlist has no
+// conflict to detect and the same handle piles up in the list.
+export const wishlistItem = pgTable(
+  "wishlist_item",
+  {
+    id: serial("id").primaryKey(),
+    userId: text("userId").notNull(),
+    productHandle: text("productHandle").notNull(),
+    createdAt: timestamp("createdAt").notNull().defaultNow(),
+  },
+  (table) => [uniqueIndex("wishlist_item_user_handle_idx").on(table.userId, table.productHandle)],
+)
 
 // The signed-in user's active Shopify cart. Lets API clients work the bag with only
 // a bearer token: no cookie, and the bag survives losing one. Anonymous callers still

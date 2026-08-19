@@ -1,10 +1,10 @@
 import { addToServerWishlist, getServerWishlist, getWishlistProducts } from "@/app/actions/wishlist"
 import { handle, json, readJsonBody, readString } from "@/lib/api/http"
-import { requireSubject } from "@/lib/api/subject"
+import { requireSessionSubject } from "@/lib/api/subject"
 
 export async function GET(request: Request) {
   return handle(request, async () => {
-    await requireSubject()
+    await requireSessionSubject()
     const handles = (await getServerWishlist()) ?? []
     const expand = new URL(request.url).searchParams.get("expand") === "products"
 
@@ -18,7 +18,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   return handle(request, async () => {
-    await requireSubject()
+    await requireSessionSubject()
     const body = await readJsonBody(request)
     const productHandle = readString(body, "handle")
 
