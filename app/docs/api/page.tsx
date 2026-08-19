@@ -30,6 +30,7 @@ const AUTH_STYLES: Record<ApiEndpoint["auth"], string> = {
   cart: "bg-amber-50 text-amber-900",
   bearer: "bg-sky-50 text-sky-900",
   agentKey: "bg-emerald-50 text-emerald-900",
+  agentKeyBearer: "bg-sky-50 text-sky-900",
   shopper: "bg-violet-50 text-violet-900",
 }
 

@@ -33,6 +33,8 @@ function security(endpoint: ApiEndpoint) {
   if (endpoint.auth === "bearer") return [{ bearerAuth: [] }]
   // Sign-in: the caller proves itself, and there is no shopper to name yet.
   if (endpoint.auth === "agentKey") return [{ agentKey: [] }]
+  // A real session, so X-Shopper-Email cannot stand in for it.
+  if (endpoint.auth === "agentKeyBearer") return [BY_TOKEN]
   // The shared secret, plus the shopper named by a token or by an email header.
   if (endpoint.auth === "shopper") return SHOPPER_REQUIREMENT
   // Same for an agent, plus the two browser forms. An agent has no anonymous option:

@@ -16,11 +16,14 @@
  * "agentKey" — X-Agent-Key alone. The sign-in endpoints: the caller must be the
  *              integration, but there is no shopper to name yet — naming one is what
  *              the flow is for.
+ * "agentKeyBearer" — X-Agent-Key AND a real bearer token. Only get-session, which
+ *              inspects a session and so cannot be satisfied by a header that merely
+ *              names a shopper.
  * "shopper"  — X-Agent-Key, plus a shopper named either by a bearer token or by the
  *              X-Shopper-Email header. The agent key never substitutes for naming a
  *              shopper, and naming one never substitutes for the agent key.
  */
-export type ApiAuth = "public" | "cart" | "bearer" | "agentKey" | "shopper"
+export type ApiAuth = "public" | "cart" | "bearer" | "agentKey" | "agentKeyBearer" | "shopper"
 
 export type JsonSchema = Record<string, unknown>
 
@@ -81,6 +84,7 @@ export const AUTH_LABELS: Record<ApiAuth, string> = {
   cart: "X-Agent-Key and a named shopper — or, for a browser, a cookie",
   bearer: "Bearer token or session cookie — no agent path",
   agentKey: "X-Agent-Key only — no shopper named yet",
+  agentKeyBearer: "X-Agent-Key and a bearer token — a real session, not a named shopper",
   shopper: "X-Agent-Key, plus X-Shopper-Email or a bearer token",
 }
 
@@ -111,7 +115,7 @@ export const BEARER_PARAM: ApiParam = {
   type: "string",
   required: true,
   description:
-    "`Bearer <token>`, using the token from POST /api/auth/sign-in/email-otp (found at `data.token`). Identifies the shopper, where X-Agent-Key identifies the caller — both are required and neither substitutes for the other. Cookies are not required and not used: every call is independent.",
+    "`Bearer <token>`, using the token from POST /api/auth/sign-in/email-otp (found at `data.token`). Names the shopper, where X-Agent-Key proves the caller — the agent key is always required, and this is one of the two ways to name a shopper. It is the stronger one and wins over X-Shopper-Email when both are sent. Cookies are not required and not used: every call is independent.",
   example: "Bearer $TOKEN",
 }
 
@@ -674,8 +678,8 @@ export const API_GROUPS: ApiGroup[] = [
         summary: "Inspect the current session",
         description:
           "Returns the account behind the bearer token. Use it to check a stored token is still good before a write, rather than discovering it is not partway through a checkout.\n\nAn absent or expired session is a **401**, not Better Auth's 200 with a `null` body: the agent branches on the status to decide whether to re-run sign-in, and a 200 reads as success. A cookie works too, for the website.",
-        auth: "shopper",
-        params: SHOPPER_HEADERS,
+        auth: "agentKeyBearer",
+        params: [AGENT_KEY_PARAM, { ...BEARER_PARAM, required: true }],
         responses: [
           {
             status: 200,
