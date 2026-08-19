@@ -101,8 +101,10 @@ Two ways to present the same Better Auth session:
 
 An agent sends two credentials, and they answer different questions. `X-Agent-Key` proves
 the caller is the GLOWA agent; a bearer token proves which shopper the call is for. The
-shopper gets that token by completing the email-OTP flow, so they must be signed in before
-the first cart write — there is no anonymous agent bag.
+shopper gets that token by completing the email-OTP flow. Where the caller cannot carry a
+token between calls, `X-Shopper-Email` names the shopper instead — set
+`ALLOW_SHOPPER_EMAIL_HEADER` to enable it. Either way a shopper must be named before the
+first cart write; there is no anonymous agent bag.
 
 Locally the agent key needs no setup: outside production the well-known key
 `dev-agent-key` is accepted. Set `DEMO_OTP_CODE` so sign-in can complete without a mail

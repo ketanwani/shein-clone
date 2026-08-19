@@ -16,8 +16,9 @@
  * "agentKey" — X-Agent-Key alone. The sign-in endpoints: the caller must be the
  *              integration, but there is no shopper to name yet — naming one is what
  *              the flow is for.
- * "shopper"  — X-Agent-Key AND a bearer token, checked independently. Neither one
- *              substitutes for the other. This is the only way to name a shopper.
+ * "shopper"  — X-Agent-Key, plus a shopper named either by a bearer token or by the
+ *              X-Shopper-Email header. The agent key never substitutes for naming a
+ *              shopper, and naming one never substitutes for the agent key.
  */
 export type ApiAuth = "public" | "cart" | "bearer" | "agentKey" | "shopper"
 
@@ -77,10 +78,10 @@ export const DEFAULT_BASE_URL = "http://localhost:3000"
 
 export const AUTH_LABELS: Record<ApiAuth, string> = {
   public: "Public — no credentials",
-  cart: "X-Agent-Key and a bearer token — or, for a browser, a cookie",
+  cart: "X-Agent-Key and a named shopper — or, for a browser, a cookie",
   bearer: "Bearer token or session cookie — no agent path",
   agentKey: "X-Agent-Key only — no shopper named yet",
-  shopper: "X-Agent-Key and the shopper's bearer token — both required",
+  shopper: "X-Agent-Key, plus X-Shopper-Email or a bearer token",
 }
 
 /** Documented on every endpoint an agent can call, so the two headers are never implicit. */
@@ -94,6 +95,16 @@ export const AGENT_KEY_PARAM: ApiParam = {
   example: "$AGENT_KEY",
 }
 
+export const SHOPPER_EMAIL_PARAM: ApiParam = {
+  name: "X-Shopper-Email",
+  in: "header",
+  type: "string",
+  required: false,
+  description:
+    "The shopper's email address, naming who this call is for. Trimmed and lowercased, so `Ada@Example.com` and `ada@example.com` are one shopper. An address seen for the first time provisions that shopper. Required unless a bearer token is sent; if both are sent the token wins.\n\n**This header is asserted by the caller and proves nothing.** Anyone holding X-Agent-Key can read or modify any shopper's bag, wishlist, profile and order history by naming their address. It exists only because the agent runtime cannot yet carry a bearer token between calls, it is off unless the server sets ALLOW_SHOPPER_EMAIL_HEADER, and it is acceptable only on a demo deployment with mock products and simulated payments.",
+  example: "ada@example.com",
+}
+
 export const BEARER_PARAM: ApiParam = {
   name: "Authorization",
   in: "header",
@@ -104,8 +115,11 @@ export const BEARER_PARAM: ApiParam = {
   example: "Bearer $TOKEN",
 }
 
-/** Endpoints where the shopper themselves must have signed in. */
-const SHOPPER_HEADERS: ApiParam[] = [AGENT_KEY_PARAM, BEARER_PARAM]
+/**
+ * Endpoints that act for one shopper. The agent key is required; the shopper is named by
+ * either of the other two, so neither is individually mandatory.
+ */
+const SHOPPER_HEADERS: ApiParam[] = [AGENT_KEY_PARAM, SHOPPER_EMAIL_PARAM, { ...BEARER_PARAM, required: false }]
 
 // --- JSON Schema components ------------------------------------------------
 
@@ -432,20 +446,23 @@ const AGENT_UNAUTHORIZED = errorResponse(401, "Missing or wrong X-Agent-Key, or 
 })
 
 /**
- * The two ways a shopper-scoped call is turned away. Both are 401 with a machine-readable
- * code, never a redirect and never a 200 with an empty body, because the agent branches
- * on this to decide whether to re-run sign-in.
+ * The two ways a shopper-scoped call is turned away.
+ *
+ * Naming nobody is a 400, not a 401: no credential was rejected, one was simply absent,
+ * and the agent's next move is to supply it rather than to re-authenticate. A bad agent
+ * key stays a 401. Both carry a machine-readable code and an instruction the model can
+ * act on, never a redirect and never a 200 with an empty body.
  */
-const NO_SHOPPER_TOKEN = errorResponse(401, "The bearer token is missing, malformed or expired.", {
+const NO_SHOPPER_NAMED = errorResponse(400, "No shopper was named: neither X-Shopper-Email nor a bearer token was sent.", {
   error: {
-    code: "unauthorized",
-    message: "This endpoint requires a signed-in shopper.",
-    hint: "This is expected and recoverable \u2014 do not hand off to a human. The shopper is not signed in yet, or their token expired. Sign them in: POST /api/auth/email-otp/send-verification-otp with {email, type:\"sign-in\"}, ask the shopper for the 6-digit code they receive, then POST /api/auth/sign-in/email-otp with {email, otp}. Take data.token from the response, retry this call with `Authorization: Bearer <token>` plus X-Agent-Key, and continue.",
+    code: "bad_request",
+    message: "No shopper identified. Send X-Shopper-Email, or a bearer token.",
+    hint: "This is expected and recoverable \u2014 do not hand off to a human. No shopper was named. Send X-Shopper-Email with the shopper's email address (the same value on every call for that shopper), alongside X-Agent-Key, and retry. Alternatively, if you hold a session token from POST /api/auth/sign-in/email-otp, send it as `Authorization: Bearer <token>` instead.",
   },
 })
 
-/** Listed alongside NO_SHOPPER_TOKEN so the docs show that one credential is not enough. */
-const NO_AGENT_KEY = errorResponse(401, "X-Agent-Key is missing or wrong, whatever the bearer token says.", {
+/** Listed alongside NO_SHOPPER_NAMED so the docs show that one credential is not enough. */
+const NO_AGENT_KEY = errorResponse(401, "X-Agent-Key is missing or wrong, whatever else the request carries.", {
   error: {
     code: "unauthorized",
     message: "Invalid or missing X-Agent-Key.",
@@ -453,7 +470,7 @@ const NO_AGENT_KEY = errorResponse(401, "X-Agent-Key is missing or wrong, whatev
   },
 })
 
-const SHOPPER_UNAUTHORIZED: ApiResponse[] = [NO_SHOPPER_TOKEN, NO_AGENT_KEY]
+const SHOPPER_UNAUTHORIZED: ApiResponse[] = [NO_SHOPPER_NAMED, NO_AGENT_KEY]
 
 const SHOPIFY_UNAVAILABLE = errorResponse(503, "Shopify credentials are not configured on the server.", {
   error: {
@@ -492,7 +509,7 @@ export const API_GROUPS: ApiGroup[] = [
     name: "Auth",
     slug: "auth",
     description:
-      "Two ways in, for two different callers.\n\n**Email OTP, for an agent acting for one shopper.** `send-verification-otp` mails a 6-digit code; `sign-in/email-otp` exchanges it for a session token at `data.token`, valid 7 days. Send that token as `Authorization: Bearer <token>` alongside `X-Agent-Key` on every shopper-scoped call — cart, customer, wishlist and orders alike. No cookie is involved at any point, and the account is created when a correct code arrives, never when one is requested, so a mistyped address leaves nothing behind. No refresh token is issued: re-run this flow when the expiry passes.\n\n**Email and password, for the website's own login forms.** Unchanged, and still owned by Better Auth, so those two routes return flat `{message, code}` errors rather than the storefront's nested `{error: {...}}` shape.\n\n**There is exactly one way to identify a shopper: their bearer token.** `X-Customer-Ref` has been removed. It was the caller asserting who it was acting for, which made everything it unlocked reachable by anyone holding the shared secret — the reason the wishlist and orders already refused it. A request that still sends the header is not rejected; it is simply ignored, so a stale integration degrades to a recoverable 401 rather than breaking.\n\nThe practical consequence: **the shopper must be signed in before the first add-to-bag**, not just before checkout. There is no anonymous agent bag to fill first.",
+      "Two ways in, for two different callers.\n\n**Email OTP, for an agent acting for one shopper.** `send-verification-otp` mails a 6-digit code; `sign-in/email-otp` exchanges it for a session token at `data.token`, valid 7 days. Send that token as `Authorization: Bearer <token>` alongside `X-Agent-Key` on every shopper-scoped call — cart, customer, wishlist and orders alike. No cookie is involved at any point, and the account is created when a correct code arrives, never when one is requested, so a mistyped address leaves nothing behind. No refresh token is issued: re-run this flow when the expiry passes.\n\n**Email and password, for the website's own login forms.** Unchanged, and still owned by Better Auth, so those two routes return flat `{message, code}` errors rather than the storefront's nested `{error: {...}}` shape.\n\n**Two ways to name a shopper, and the token wins.** Send `Authorization: Bearer <token>` from the flow above, or send `X-Shopper-Email` with the shopper's address. If both arrive the token is used, so the website's logged-in flows are unaffected by any header an agent also sends. With neither, the call is a 400 naming both options — nothing was rejected, nobody was named.\n\nAn address seen for the first time provisions that shopper, and is trimmed and lowercased first, so `Ada@Example.com` and `ada@example.com` are one person rather than two.\n\n> **How the shopper is named, and what it costs.** `X-Shopper-Email` is asserted by the caller and proves nothing. Anyone holding `X-Agent-Key` can read or modify any shopper's bag, wishlist, profile and order history by naming their address. The email-OTP bearer token is the correct mechanism and is still implemented — the agent runtime cannot currently carry a token between calls, which is the only reason this exists. It is off unless the server sets `ALLOW_SHOPPER_EMAIL_HEADER`, and acceptable only on a demo deployment with mock products and simulated payments.\n\n`X-Customer-Ref` was removed for exactly the weakness `X-Shopper-Email` reintroduces. A request that still sends the ref is ignored, not rejected.",
     endpoints: [
       {
         method: "POST",
@@ -923,7 +940,7 @@ export const API_GROUPS: ApiGroup[] = [
     name: "Customer",
     slug: "customer",
     description:
-      "The shopper's contact details and address book, so the agent can find out what it still needs to ask for before checkout — and, on a return visit, ask for nothing at all. Everything here is keyed by the signed-in account, so these routes need `X-Agent-Key` and a bearer token. **Email is never a lookup key**: it is contact data written onto the profile and the order, and two shoppers who give the same address stay two separate accounts with separate address books. Do not front-load any of this — browsing and search need no profile data, so ask only when you reach checkout.",
+      "The shopper's contact details and address book, so the agent can find out what it still needs to ask for before checkout — and, on a return visit, ask for nothing at all. Everything here is keyed by the account, so these routes need `X-Agent-Key` plus a named shopper — `X-Shopper-Email` or a bearer token. **Email is never a lookup key**: it is contact data written onto the profile and the order, and two shoppers who give the same address stay two separate accounts with separate address books. Do not front-load any of this — browsing and search need no profile data, so ask only when you reach checkout.",
     endpoints: [
       {
         method: "GET",
@@ -1025,7 +1042,7 @@ export const API_GROUPS: ApiGroup[] = [
     name: "Cart",
     slug: "cart",
     description:
-      "One bag per shopper, in a shared server-side store.\n\n**Agents** send `X-Agent-Key` and the shopper's bearer token; the bag is keyed by the account. This is the first point in an agent conversation that needs the shopper signed in — there is no anonymous agent bag, so a call with no token returns 401 with instructions for the OTP flow rather than starting a bag nobody owns.\n\n**Signed-in browsers** send a session cookie and get the same account-keyed bag. **Anonymous browsers** get an httpOnly `cartId` cookie on the first add, which the browser returns automatically; that bag is adopted by the account on the first authenticated call, so signing in mid-shop loses nothing.",
+      "One bag per shopper, in a shared server-side store.\n\n**Agents** send `X-Agent-Key` and name the shopper, with `X-Shopper-Email` or a bearer token; the bag is keyed by the resulting account. There is no anonymous agent bag, so a call that names nobody returns 400 with instructions rather than starting a bag nobody owns.\n\n**Signed-in browsers** send a session cookie and get the same account-keyed bag. **Anonymous browsers** get an httpOnly `cartId` cookie on the first add, which the browser returns automatically; that bag is adopted by the account on the first authenticated call, so signing in mid-shop loses nothing.",
     endpoints: [
       {
         method: "GET",
@@ -1116,7 +1133,7 @@ export const API_GROUPS: ApiGroup[] = [
     name: "Wishlist",
     slug: "wishlist",
     description:
-      "Saved product handles for one shopper, stored in Postgres.\n\nThe shopper is identified by their **bearer token**, sent alongside `X-Agent-Key`. Without a token these routes answer 401 `unauthorized`, whatever else the request carries.",
+      "Saved product handles for one shopper, stored in Postgres.\n\nThe shopper is named by `X-Shopper-Email` or a **bearer token**, sent alongside `X-Agent-Key`; the token wins if both arrive. Naming nobody answers 400 `bad_request`, and a missing or wrong agent key answers 401 `unauthorized`.",
     endpoints: [
       {
         method: "GET",
@@ -1192,7 +1209,7 @@ export const API_GROUPS: ApiGroup[] = [
     name: "Orders",
     slug: "orders",
     description:
-      "Checkout and order history for one shopper.\n\nThe shopper is identified by their **bearer token**, sent alongside `X-Agent-Key`, on every route in this tag including `POST /api/orders`. Without a token these routes answer 401 `unauthorized`.\n\nThe bag is keyed by the same account, so the token that filled it is the token that checks it out — there is nothing to hand over and no second credential to remember.\n\nPayment is simulated: only the test card 4242 4242 4242 4242 is accepted, and no real charge is made.",
+      "Checkout and order history for one shopper.\n\nThe shopper is named by `X-Shopper-Email` or a **bearer token**, sent alongside `X-Agent-Key`, on every route in this tag including `POST /api/orders`. Naming nobody answers 400 `bad_request`.\n\nThe bag is keyed by the same account, so whatever named the shopper when it was filled names them again at checkout — there is nothing to hand over and no second credential to remember. The `email` field in the order body is separate: contact data for that order, and optional once the profile holds one.\n\nPayment is simulated: only the test card 4242 4242 4242 4242 is accepted, and no real charge is made.",
     endpoints: [
       {
         method: "POST",

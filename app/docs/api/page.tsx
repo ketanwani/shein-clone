@@ -274,7 +274,7 @@ export default async function ApiDocsPage() {
                 ["GET /api/collections", "discover valid category slugs"],
                 ["GET /api/search?q=summer%20dress", "find candidate products"],
                 ["GET /api/products/{handle}", "read variants[].id — that GID is the merchandiseId"],
-                ["POST /api/auth/sign-in/email-otp", "sign the shopper in; keep data.token. Needed before the bag, not just checkout"],
+                ["POST /api/auth/sign-in/email-otp", "sign the shopper in; keep data.token. Or skip and send X-Shopper-Email instead"],
                 ["POST /api/cart/lines", "add to the bag, as the signed-in shopper"],
                 ["GET /api/cart", "confirm lines and totals"],
                 ["GET /api/customer", "read missing[] to see what to ask for, addresses[] to offer one"],
@@ -299,16 +299,27 @@ export default async function ApiDocsPage() {
               caller is the agent. It goes on every call, never changes, and proves the caller and nothing else.
             </p>
             <p className="mt-2 text-sm text-foreground/80">
-              A <strong>bearer token is the only way to name a shopper</strong>. The bag, the profile and address book,
-              the wishlist and the order history are all keyed by the signed-in account, so the shopper must sign in
-              before the <em>first add-to-bag</em> — not merely before checkout. There is no anonymous agent bag.
+              Naming the <em>shopper</em> is separate, and there are two ways.{" "}
+              <code className="font-mono text-xs">Authorization: Bearer</code> from the OTP flow, or{" "}
+              <code className="font-mono text-xs">X-Shopper-Email</code> carrying their address. If both arrive the
+              token wins. The bag, profile, wishlist and order history are all keyed by the resulting account, so every
+              one of those calls — including the first add-to-bag — must name a shopper. There is no anonymous agent
+              bag.
             </p>
             <p className="mt-2 text-sm text-foreground/80">
-              <code className="font-mono text-xs">X-Customer-Ref</code> used to be a second answer: an opaque,
-              per-conversation id the agent asserted. It has been removed — a ref is the caller claiming who it is
-              acting for, so everything it unlocked was reachable by anyone holding the shared secret. Requests that
-              still send the header are <strong>ignored, not rejected</strong>, so a stale integration degrades to a
-              recoverable 401 rather than breaking.
+              Addresses are trimmed and lowercased, so <code className="font-mono text-xs">Ada@Example.com</code> and{" "}
+              <code className="font-mono text-xs">ada@example.com</code> are one shopper. An address seen for the first
+              time provisions that shopper.
+            </p>
+            <p className="mt-3 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+              <strong>⚠️ X-Shopper-Email is asserted by the caller and proves nothing.</strong> Anyone holding{" "}
+              <code className="font-mono text-xs">X-Agent-Key</code> can read or modify any shopper&apos;s bag,
+              wishlist, profile and order history by naming their address — the same weakness{" "}
+              <code className="font-mono text-xs">X-Customer-Ref</code> was removed for, knowingly reintroduced. The
+              OTP bearer token is the correct mechanism and is still implemented; this exists only because the agent
+              runtime cannot yet carry a token between calls. It is off unless the server sets{" "}
+              <code className="font-mono text-xs">ALLOW_SHOPPER_EMAIL_HEADER</code>, and is acceptable only on this
+              demo deployment, which holds mock products and simulated payments.
             </p>
             <Code className="mt-3">{`export AGENT_KEY='...'   # the secret GLOWA issued you
 
@@ -326,6 +337,10 @@ export TOKEN='...'   # data.token from the response above
 
 # 2. Everything shopper-scoped: agent key + the shopper's token.
 curl -s -H "X-Agent-Key: $AGENT_KEY" -H "Authorization: Bearer $TOKEN" \\
+  '${baseUrl}/api/cart'
+
+# Or, where the runtime cannot carry a token, name the shopper directly:
+curl -s -H "X-Agent-Key: $AGENT_KEY" -H "X-Shopper-Email: ada@example.com" \\
   '${baseUrl}/api/cart'`}</Code>
             <p className="mt-3 text-sm text-foreground/80">
               If the server has no <code className="font-mono text-xs">AGENT_API_KEY</code> configured the agent path is

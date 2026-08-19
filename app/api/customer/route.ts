@@ -1,6 +1,6 @@
 import { buildCustomerPayload, updateProfile } from "@/lib/api/customer"
 import { assertDatabaseConfigured, handle, json, readJsonBody, readOptionalString } from "@/lib/api/http"
-import { requireSessionSubject } from "@/lib/api/subject"
+import { requireShopperSubject } from "@/lib/api/subject"
 
 /**
  * What the agent still needs to ask the shopper for, before checkout.
@@ -11,7 +11,7 @@ import { requireSessionSubject } from "@/lib/api/subject"
 export async function GET(request: Request) {
   return handle(request, async () => {
     assertDatabaseConfigured()
-    const subject = await requireSessionSubject()
+    const subject = await requireShopperSubject()
     return json({ customer: await buildCustomerPayload(subject.userId) })
   })
 }
@@ -20,7 +20,7 @@ export async function GET(request: Request) {
 export async function PATCH(request: Request) {
   return handle(request, async () => {
     assertDatabaseConfigured()
-    const subject = await requireSessionSubject()
+    const subject = await requireShopperSubject()
     const body = await readJsonBody(request)
 
     await updateProfile(subject.userId, {

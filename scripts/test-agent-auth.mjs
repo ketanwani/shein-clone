@@ -30,10 +30,11 @@ function check(name, ok, detail = "") {
   }
 }
 
-async function call(path, { method = "GET", token, ref, body, key = KEY } = {}) {
+async function call(path, { method = "GET", token, ref, shopper, body, key = KEY } = {}) {
   const headers = {}
   if (key) headers["X-Agent-Key"] = key
   if (ref) headers["X-Customer-Ref"] = ref
+  if (shopper) headers["X-Shopper-Email"] = shopper
   if (token) headers.Authorization = `Bearer ${token}`
   if (body) headers["Content-Type"] = "application/json"
 
@@ -85,8 +86,8 @@ async function main() {
   console.log("\ncredential independence")
   for (const path of ["/api/wishlist", "/api/orders"]) {
     const noBearer = await call(path, { ref: unique("ref") })
-    check(`${path}: agent key + ref, no bearer -> 401`, noBearer.status === 401, `got ${noBearer.status}`)
-    check(`${path}: ...with code "unauthorized"`, noBearer.json?.error?.code === "unauthorized")
+    check(`${path}: agent key + stale ref, nobody named -> 400`, noBearer.status === 400, `got ${noBearer.status}`)
+    check(`${path}: ...with code "bad_request"`, noBearer.json?.error?.code === "bad_request")
 
     const noKey = await call(path, { token: a.token, key: null })
     check(`${path}: valid bearer, no agent key -> 401`, noKey.status === 401, `got ${noKey.status}`)
@@ -103,19 +104,19 @@ async function main() {
     method: "POST",
     body: { merchandiseId: variantId, quantity: 1 },
   })
-  check("POST /api/cart/lines without a bearer -> 401", noToken.status === 401, `got ${noToken.status}`)
-  check("...code \"unauthorized\"", noToken.json?.error?.code === "unauthorized")
+  check("POST /api/cart/lines naming nobody -> 400", noToken.status === 400, `got ${noToken.status}`)
+  check("...code \"bad_request\"", noToken.json?.error?.code === "bad_request")
   check(
     "...hint tells the agent to run the OTP flow, not to give up",
     (noToken.json?.error?.hint ?? "").includes("do not hand off to a human") &&
       (noToken.json?.error?.hint ?? "").includes("/api/auth/sign-in/email-otp"),
   )
   const cartNoToken = await call("/api/cart")
-  check("GET /api/cart without a bearer -> 401", cartNoToken.status === 401, `got ${cartNoToken.status}`)
+  check("GET /api/cart naming nobody -> 400", cartNoToken.status === 400, `got ${cartNoToken.status}`)
 
   for (const path of ["/api/customer", "/api/customer/addresses"]) {
     const res = await call(path)
-    check(`${path} without a bearer -> 401`, res.status === 401, `got ${res.status}`)
+    check(`${path} naming nobody -> 400`, res.status === 400, `got ${res.status}`)
   }
 
   // --- The whole journey on the bearer alone --------------------------------
@@ -171,7 +172,11 @@ async function main() {
     check(`${path}: not 400 or 409`, withRef.status !== 400 && withRef.status !== 409, `got ${withRef.status}`)
   }
   const refNoToken = await call("/api/cart", { ref: "stale-ref-from-old-integration" })
-  check("ref without a token is still just 401", refNoToken.status === 401, `got ${refNoToken.status}`)
+  check(
+    "a ref names nobody, so it is the ordinary 400",
+    refNoToken.status === 400,
+    `got ${refNoToken.status}`,
+  )
 
   // --- Enumeration --------------------------------------------------------
   console.log("\nuniform responses")
@@ -227,6 +232,61 @@ async function main() {
     check("...with none of the old data", (empty.json?.handles ?? []).length === 0)
   } else {
     check("delete endpoint is 404 when not enabled", noOtp.status === 404, `got ${noOtp.status}`)
+  }
+
+  // --- X-Shopper-Email -------------------------------------------------------
+  console.log("\nnaming the shopper by email header")
+  const headerMode = process.env.ALLOW_SHOPPER_EMAIL_HEADER?.trim()
+
+  if (headerMode) {
+    const addr = `${unique("hdr")}@example.com`
+    const variantForHeader = await firstVariantId()
+
+    const added = await call("/api/cart/lines", {
+      method: "POST",
+      shopper: addr,
+      body: { merchandiseId: variantForHeader, quantity: 2 },
+    })
+    check("cart write with the email header, no bearer -> 201", added.status === 201, `got ${added.status}`)
+
+    const bag = await call("/api/cart", { shopper: addr })
+    check("the bag is there on the next call", bag.json?.cart?.id === added.json?.cart?.id)
+    check("...with its contents", bag.json?.cart?.totalQuantity === 2)
+
+    await call("/api/wishlist", { method: "POST", shopper: addr, body: { handle: "header-saved" } })
+    const mixedCase = await call("/api/wishlist", { shopper: addr.toUpperCase() })
+    check("UPPERCASE address is the same shopper", (mixedCase.json?.handles ?? []).includes("header-saved"))
+    const padded = await call("/api/wishlist", { shopper: `  ${addr}  ` })
+    check("padded address is the same shopper", (padded.json?.handles ?? []).includes("header-saved"))
+
+    const other = await call("/api/wishlist", { shopper: `${unique("someone-else")}@example.com` })
+    check("a different address sees none of it", (other.json?.handles ?? []).length === 0)
+
+    // The token must win, or a stray header could redirect a signed-in shopper's writes.
+    const tokenHolder = await signIn(`${unique("tokenwins")}@example.com`)
+    await call("/api/wishlist", { method: "POST", token: tokenHolder.token, body: { handle: "token-only" } })
+    const both = await call("/api/wishlist", { token: tokenHolder.token, shopper: addr })
+    check("bearer wins when both are sent", (both.json?.handles ?? []).includes("token-only"))
+    check("...and the header's shopper is not used", !(both.json?.handles ?? []).includes("header-saved"))
+
+    const malformed = await call("/api/wishlist", { shopper: "not-an-email" })
+    check("a malformed address names nobody -> 400", malformed.status === 400, `got ${malformed.status}`)
+
+    const noKey = await call("/api/wishlist", { shopper: addr, key: null })
+    check("the email header alone is not enough -> 401", noKey.status === 401, `got ${noKey.status}`)
+  } else {
+    const ignored = await call("/api/wishlist", { shopper: "ada@example.com" })
+    check("the header is ignored when not enabled -> 400", ignored.status === 400, `got ${ignored.status}`)
+  }
+
+  for (const path of ["/api/cart", "/api/wishlist", "/api/orders", "/api/customer"]) {
+    const nobody = await call(path)
+    check(`${path}: naming nobody -> 400`, nobody.status === 400, `got ${nobody.status}`)
+    check(`${path}: ...code "bad_request"`, nobody.json?.error?.code === "bad_request")
+    check(
+      `${path}: ...hint is actionable, not a dead end`,
+      (nobody.json?.error?.hint ?? "").includes("do not hand off to a human"),
+    )
   }
 
   console.log(`\n${passed} passed, ${failures.length} failed`)
