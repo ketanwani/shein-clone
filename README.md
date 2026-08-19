@@ -31,17 +31,23 @@ Meta Business AI agent in an Instagram DM, for example. Every tool call such an 
 makes is an independent, stateless HTTP request: there is no browser, no cookie jar, and
 no way for the shopper to complete an email login without leaving the conversation.
 
-So for agents the trust boundary sits at the **caller**, not the end user. Two headers do
-two distinct jobs:
+So an agent sends two credentials, answering two distinct questions:
 
 | Header | Answers | Set by | Changes |
 | --- | --- | --- | --- |
 | `X-Agent-Key` | "Is this really the GLOWA agent?" | GLOWA issues one shared secret; the agent platform injects it | Static |
-| `X-Customer-Ref` | "Which shopper is this for?" | The agent, per conversation (e.g. an Instagram-scoped user id) | Per request |
+| `Authorization: Bearer` | "Which shopper is this for, and did they agree?" | The shopper, by returning a 6-digit code sent to their address | Per sign-in, ~7 days |
 
-Per-user scoping does not go away — it moves from the user proving their identity to a
-trusted caller asserting it. The bag, wishlist and order history are all keyed by the
-customer ref, and two refs can never see each other's data.
+They are checked independently: a valid token with no agent key is rejected, and so is an
+agent key with no token.
+
+There used to be a third header, `X-Customer-Ref` — an opaque per-conversation id the
+agent asserted, which keyed the bag and provisioned a shopper on first sight. It has been
+removed. A ref is the *caller* claiming who it is acting for, so everything it unlocked
+was reachable by anyone holding the shared secret. The bag, profile, wishlist and order
+history are now all keyed by an account the shopper proved they own, which means **the
+shopper must sign in before the first add-to-bag**, not merely before checkout. Requests
+that still send the header are ignored rather than rejected.
 
 ### Configuring `AGENT_API_KEY`
 
@@ -51,7 +57,7 @@ immediately.
 
 **Anywhere shared — including production — set the variable.** There is deliberately no
 built-in fallback in production: a fixed credential in the source would let anyone
-assert any customer ref against the public URL and read every shopper's bag, wishlist
+reach the agent routes against the public URL and, with a stolen token, every shopper's bag, wishlist
 and order history.
 
 ```bash
@@ -85,22 +91,22 @@ A few rules the server enforces:
 
 - The key is compared in **constant time**, and is never logged, echoed, or included in
   an error message.
-- `X-Customer-Ref` is required on user-scoped routes and treated as an opaque string —
-  never parsed, and never an email. A missing ref is a `400`; sending a ref without a
-  valid key is a `401`, never an anonymous fallback.
+- A bearer token is required on every shopper-scoped route — cart, customer, wishlist and
+  orders. Without one they return `401` with a hint telling the agent to run the OTP flow
+  and retry, because that state is routine and recoverable rather than a dead end.
 - **Email is never a lookup key.** It is write-only contact data on the profile and the
   order. There is no way to reach a customer, an address book or an order history by
-  supplying an email, so two refs that give the same address stay two separate shoppers.
-  A shopper who claims someone else's email gets their own empty profile.
-- Address ids are scoped to their owner. One belonging to another customer ref returns
-  `404` — never `200`, and never a fall-through to that person's address.
-- An unseen `X-Customer-Ref` is provisioned automatically on first use — no password, no
-  OTP, no email verification.
+  supplying an email, so two shoppers who give the same address stay two separate
+  accounts. A shopper who claims someone else's email gets their own empty profile.
+- Address ids are scoped to their owner. One belonging to another shopper returns `404` —
+  never `200`, and never a fall-through to that person's address.
+- Accounts are created when a correct OTP arrives, never when one is requested, so a
+  mistyped address leaves nothing behind.
 
 ### Knowing what to ask the shopper
 
 `GET /api/customer` tells the agent what it still needs to collect. It **always returns
-200**, including for a customer ref nobody has seen before — an unknown shopper is a
+200**, including for a signed-in shopper we hold nothing for yet — that is a
 normal state on the happy path, and a 4xx there would read to the model as a broken tool
 and make it apologise or abandon the purchase.
 
@@ -127,16 +133,25 @@ there is something concrete to send back as `address_id`.
 **Do not front-load this.** Browsing, search and adding to the bag need no profile data
 at all. Ask at checkout, or you have replaced a login wall with an interrogation.
 
-### Worked example: a full purchase with headers only
+### Worked example: a full purchase, no cookie jar
 
-No cookie jar, no bearer token, no OTP. Note that `curl` is never given `-b`/`-c`.
+Note that `curl` is never given `-b`/`-c`. The shopper signs in once and the token carries
+the rest.
 
 ```bash
 BASE=http://localhost:3000
-export AGENT_KEY='dev-agent-key'             # locally; the real secret anywhere shared
-export CUSTOMER_REF='ig_17841400000000000'   # opaque + stable, one per shopper
-AUTH=(-H "X-Agent-Key: $AGENT_KEY" -H "X-Customer-Ref: $CUSTOMER_REF")
+export AGENT_KEY='dev-agent-key'   # locally; the real secret anywhere shared
 JSON=(-H 'Content-Type: application/json')
+
+# 0. Sign the shopper in. Needs DEMO_OTP_CODE set, since no mail provider is wired up.
+curl -s -X POST -H "X-Agent-Key: $AGENT_KEY" "${JSON[@]}" \
+  -d '{"email":"ada@example.com","type":"sign-in"}' \
+  "$BASE/api/auth/email-otp/send-verification-otp"
+TOKEN=$(curl -s -X POST -H "X-Agent-Key: $AGENT_KEY" "${JSON[@]}" \
+  -d '{"email":"ada@example.com","otp":"000000"}' \
+  "$BASE/api/auth/sign-in/email-otp" | jq -r .data.token)
+
+AUTH=(-H "X-Agent-Key: $AGENT_KEY" -H "Authorization: Bearer $TOKEN")
 
 # 1. Find something to buy (catalogue reads are public — no headers needed).
 curl -s "$BASE/api/search?q=hoodie&limit=5" | jq -r '.products[] | "\(.handle)  \(.title)"'
@@ -157,7 +172,7 @@ curl -s "${AUTH[@]}" "$BASE/api/customer" | jq '.customer.missing, .customer.add
 
 # 6a. FIRST TIME — send a full inline address. It is saved to the address book,
 #     and its id comes back on the order.
-curl -s "${AUTH[@]}" "${JSON[@]}" -H "Idempotency-Key: checkout-$CUSTOMER_REF-001" \
+curl -s "${AUTH[@]}" "${JSON[@]}" -H "Idempotency-Key: checkout-001" \
   -X POST "$BASE/api/orders" \
   -d '{"email":"ada@example.com","name":"Ada Lovelace","address":"12 Analytical Way",
        "city":"London","zip":"EC1A 1AA","country":"GB",
@@ -167,7 +182,7 @@ curl -s "${AUTH[@]}" "${JSON[@]}" -H "Idempotency-Key: checkout-$CUSTOMER_REF-00
 # 6b. NEXT TIME — the profile already has email and name, so an address id and a
 #     card are the whole request.
 ADDRESS_ID=$(curl -s "${AUTH[@]}" "$BASE/api/customer" | jq -r '.customer.addresses[0].id')
-curl -s "${AUTH[@]}" "${JSON[@]}" -H "Idempotency-Key: checkout-$CUSTOMER_REF-002" \
+curl -s "${AUTH[@]}" "${JSON[@]}" -H "Idempotency-Key: checkout-002" \
   -X POST "$BASE/api/orders" \
   -d "{\"address_id\":\"$ADDRESS_ID\",
        \"cardNumber\":\"4242424242424242\",\"expiry\":\"12/29\",\"cvc\":\"123\"}" \
@@ -181,7 +196,7 @@ Replaying a checkout with the same `Idempotency-Key` returns the *same* order an
 responds `200` instead of `201` — it does not buy the bag twice. A declined card or an
 empty bag does not consume the key, so the agent can fix the input and retry with it.
 
-An `address_id` belonging to a different customer ref returns **404**. It never falls
+An `address_id` belonging to a different shopper returns **404**. It never falls
 through to an inline address, and never ships to the other shopper.
 
 Payment is simulated: only the test card `4242424242424242` is accepted.

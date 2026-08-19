@@ -80,25 +80,14 @@ export const userCart = pgTable("user_cart", {
   updatedAt: timestamp("updatedAt").notNull().defaultNow(),
 })
 
-// Shoppers the agent acts for. The agent asserts an opaque, conversation-scoped ref
-// (X-Customer-Ref) and we auto-provision a user row behind it on first sight, so the
-// bag, wishlist and orders key off userId exactly as they do for a browser session.
+// Contact details the shopper has given: the name and address an order goes out under.
+// Keyed by the account, which is the only shopper identity there is.
 //
-// `email` is contact data only. It is deliberately NOT unique and never used to look
-// anyone up: two refs that supply the same address are two different shoppers.
-export const agentCustomer = pgTable("agent_customer", {
-  customerRef: text("customerRef").primaryKey(),
-  userId: text("userId").notNull(),
-  /**
-   * The real account this ref has been handed over to, once its shopper signs in.
-   *
-   * Null until the first authenticated call. After that the ref resolves to this
-   * account instead of the synthetic row above, so a bag the agent filled before the
-   * shopper had an account survives into checkout. It also makes the handover
-   * one-way and exclusive: presenting the ref alongside a *different* account's token
-   * is a conflict rather than a silent choice between two identities.
-   */
-  linkedUserId: text("linkedUserId"),
+// `email` is contact data, deliberately NOT unique and never used to look anyone up.
+// The account's own email (on the user table) is the identity; this one is just what to
+// put on a parcel, and two shoppers may legitimately give the same one.
+export const customerProfile = pgTable("customer_profile", {
+  userId: text("userId").primaryKey(),
   email: text("email"),
   name: text("name"),
   createdAt: timestamp("createdAt").notNull().defaultNow(),

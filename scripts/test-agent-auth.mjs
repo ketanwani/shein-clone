@@ -6,8 +6,9 @@
  *   DEMO_OTP_CODE=000000 node scripts/test-agent-auth.mjs
  *
  * These cover the credential rules that are invisible in a type signature and easy to
- * regress: which of the three credentials decides identity, what happens when two of
- * them name different shoppers, and whether a bag built before sign-in survives it.
+ * regress: that the caller credential and the shopper credential are independent, that
+ * every shopper-scoped route needs a bearer token including the cart, and that a
+ * lingering X-Customer-Ref changes nothing.
  *
  * Env: BASE_URL, AGENT_KEY, DEMO_OTP_CODE.
  */
@@ -94,43 +95,83 @@ async function main() {
     check(`${path}: valid bearer, wrong agent key -> 401`, badKey.status === 401, `got ${badKey.status}`)
   }
 
-  // --- All three together, and the mismatch ---------------------------------
-  console.log("\nall three credentials, and ref/token mismatch")
-  const ref = unique("ref")
+  // --- The cart now needs a token too ---------------------------------------
+  console.log("\ncart requires the shopper, not just the caller")
   const variantId = await firstVariantId()
 
-  // Build a bag under the ref alone, before anyone has signed in.
-  const filled = await call("/api/cart/lines", { method: "POST", ref, body: { merchandiseId: variantId, quantity: 2 } })
-  check("bag filled with ref only -> 201", filled.status === 201, `got ${filled.status}`)
-  const refCartId = filled.json?.cart?.id
+  const noToken = await call("/api/cart/lines", {
+    method: "POST",
+    body: { merchandiseId: variantId, quantity: 1 },
+  })
+  check("POST /api/cart/lines without a bearer -> 401", noToken.status === 401, `got ${noToken.status}`)
+  check("...code \"unauthorized\"", noToken.json?.error?.code === "unauthorized")
+  check(
+    "...hint tells the agent to run the OTP flow, not to give up",
+    (noToken.json?.error?.hint ?? "").includes("do not hand off to a human") &&
+      (noToken.json?.error?.hint ?? "").includes("/api/auth/sign-in/email-otp"),
+  )
+  const cartNoToken = await call("/api/cart")
+  check("GET /api/cart without a bearer -> 401", cartNoToken.status === 401, `got ${cartNoToken.status}`)
 
-  // First authenticated call adopts the ref onto the account.
-  const adopted = await call("/api/cart", { ref, token: a.token })
-  check("all three credentials accepted -> 200", adopted.status === 200, `got ${adopted.status}`)
-  check("ref-keyed bag survives sign-in", adopted.json?.cart?.id === refCartId, `got ${adopted.json?.cart?.id}`)
-  check("bag contents intact", adopted.json?.cart?.totalQuantity === 2)
-
-  // A second shopper. The ref now belongs to the first.
-  const b = await signIn(`${unique("shopper-b")}@example.com`)
-  await call("/api/wishlist", { method: "POST", token: a.token, body: { handle: "only-a-saved-this" } })
-
-  for (const path of ["/api/wishlist", "/api/orders", "/api/cart"]) {
-    const mismatch = await call(path, { ref, token: b.token })
-    check(`${path}: ref of A + token of B -> 409`, mismatch.status === 409, `got ${mismatch.status}`)
-    check(`${path}: ...code "customer_ref_mismatch"`, mismatch.json?.error?.code === "customer_ref_mismatch")
-    check(
-      `${path}: ...leaks none of A's data`,
-      !JSON.stringify(mismatch.json ?? {}).includes("only-a-saved-this"),
-    )
+  for (const path of ["/api/customer", "/api/customer/addresses"]) {
+    const res = await call(path)
+    check(`${path} without a bearer -> 401`, res.status === 401, `got ${res.status}`)
   }
 
-  const matched = await call("/api/wishlist", { ref, token: a.token })
-  check("matching ref + token still works -> 200", matched.status === 200, `got ${matched.status}`)
-  check("...and returns the token holder's data", matched.json?.handles?.includes("only-a-saved-this"))
+  // --- The whole journey on the bearer alone --------------------------------
+  console.log("\nfull journey on the token alone")
+  const added = await call("/api/cart/lines", {
+    method: "POST",
+    token: a.token,
+    body: { merchandiseId: variantId, quantity: 2 },
+  })
+  check("add to bag with the token -> 201", added.status === 201, `got ${added.status}`)
 
-  const bAlone = await call("/api/wishlist", { token: b.token })
-  check("token B without the ref is unaffected -> 200", bAlone.status === 200, `got ${bAlone.status}`)
-  check("...and sees only its own data", (bAlone.json?.handles ?? []).length === 0)
+  const bag = await call("/api/cart", { token: a.token })
+  check("bag is there on the next call", bag.json?.cart?.id === added.json?.cart?.id)
+  check("bag contents intact", bag.json?.cart?.totalQuantity === 2)
+
+  const placed = await call("/api/orders", {
+    method: "POST",
+    token: a.token,
+    body: {
+      email: "ada@example.com",
+      name: "Ada Lovelace",
+      address: "12 Analytical Way",
+      city: "London",
+      zip: "EC1A 1AA",
+      country: "GB",
+      cardNumber: "4242424242424242",
+      expiry: "12/29",
+      cvc: "123",
+    },
+  })
+  check("checkout with an inline address -> 201", placed.status === 201, `got ${placed.status} ${placed.text.slice(0, 120)}`)
+
+  const book = await call("/api/customer/addresses", { token: a.token })
+  check("checkout saved the address to the book", (book.json?.addresses ?? []).length === 1)
+  const savedId = book.json?.addresses?.[0]?.id
+  check("saved address has an id", typeof savedId === "string" && savedId.startsWith("addr_"))
+
+  // "Ship it to my usual address" — the case the ref removal must not break.
+  await call("/api/cart/lines", { method: "POST", token: a.token, body: { merchandiseId: variantId, quantity: 1 } })
+  const reorder = await call("/api/orders", {
+    method: "POST",
+    token: a.token,
+    body: { address_id: savedId, cardNumber: "4242424242424242", expiry: "12/29", cvc: "123" },
+  })
+  check("reorder quoting address_id -> 201", reorder.status === 201, `got ${reorder.status} ${reorder.text.slice(0, 120)}`)
+
+  // --- A stale ref must change nothing --------------------------------------
+  console.log("\na lingering X-Customer-Ref is ignored, not rejected")
+  for (const path of ["/api/wishlist", "/api/orders", "/api/cart", "/api/customer"]) {
+    const withRef = await call(path, { token: a.token, ref: "stale-ref-from-old-integration" })
+    const without = await call(path, { token: a.token })
+    check(`${path}: same status with and without the ref`, withRef.status === without.status, `${withRef.status} vs ${without.status}`)
+    check(`${path}: not 400 or 409`, withRef.status !== 400 && withRef.status !== 409, `got ${withRef.status}`)
+  }
+  const refNoToken = await call("/api/cart", { ref: "stale-ref-from-old-integration" })
+  check("ref without a token is still just 401", refNoToken.status === 401, `got ${refNoToken.status}`)
 
   // --- Enumeration --------------------------------------------------------
   console.log("\nuniform responses")

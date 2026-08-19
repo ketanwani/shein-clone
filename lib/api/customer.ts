@@ -1,18 +1,18 @@
 /**
  * The shopper's profile and address book.
  *
- * Everything here is keyed by userId, which comes from X-Customer-Ref via
- * lib/api/agent.ts. Email is write-only contact data: it is stored on the profile and
- * put on orders, and it is never a lookup key. There is deliberately no function in
- * this file that takes an email and returns a customer — if a shopper could say "my
- * email is someone@else.com" and receive that person's saved addresses, the whole
- * design would have failed.
+ * Everything here is keyed by userId — the account the shopper proved they own by
+ * completing the email-OTP flow. Email is write-only contact data: it is stored on the
+ * profile and put on orders, and it is never a lookup key. There is deliberately no
+ * function in this file that takes an email and returns a customer — if a shopper could
+ * say "my email is someone@else.com" and receive that person's saved addresses, the
+ * whole design would have failed.
  */
 
 import { randomUUID } from "node:crypto"
 import { and, asc, eq } from "drizzle-orm"
 import { db } from "@/lib/db"
-import { agentCustomer, customerAddress } from "@/lib/db/schema"
+import { customerAddress, customerProfile } from "@/lib/db/schema"
 import { ApiFailure } from "@/lib/api/failure"
 
 /** Field names the agent still needs to collect. Machine-readable on purpose. */
@@ -144,9 +144,9 @@ export type CustomerProfile = {
 
 export async function getProfile(userId: string): Promise<CustomerProfile> {
   const [row] = await db
-    .select({ email: agentCustomer.email, name: agentCustomer.name })
-    .from(agentCustomer)
-    .where(eq(agentCustomer.userId, userId))
+    .select({ email: customerProfile.email, name: customerProfile.name })
+    .from(customerProfile)
+    .where(eq(customerProfile.userId, userId))
     .limit(1)
 
   return { email: row?.email ?? null, name: row?.name ?? null }
@@ -154,12 +154,20 @@ export async function getProfile(userId: string): Promise<CustomerProfile> {
 
 /** Records contact details the shopper has given. Never merges customers by email. */
 export async function updateProfile(userId: string, patch: Partial<CustomerProfile>) {
-  const set: Record<string, unknown> = { updatedAt: new Date() }
-  if (patch.email !== undefined && patch.email !== null && patch.email.trim()) set.email = patch.email.trim()
-  if (patch.name !== undefined && patch.name !== null && patch.name.trim()) set.name = patch.name.trim()
-  if (Object.keys(set).length === 1) return
+  const email = patch.email?.trim() || undefined
+  const name = patch.name?.trim() || undefined
+  if (!email && !name) return
 
-  await db.update(agentCustomer).set(set).where(eq(agentCustomer.userId, userId))
+  // Upsert, not update. Nothing provisions a profile row up front any more — the ref
+  // path used to, and an update-only write would now silently discard the first
+  // address and name a shopper ever gives us.
+  await db
+    .insert(customerProfile)
+    .values({ userId, email: email ?? null, name: name ?? null })
+    .onConflictDoUpdate({
+      target: customerProfile.userId,
+      set: { ...(email ? { email } : {}), ...(name ? { name } : {}), updatedAt: new Date() },
+    })
 }
 
 export type CustomerPayload = {

@@ -58,26 +58,39 @@ reach npmjs.org directly.
 Two ways to present the same Better Auth session:
 
 - **Cookies** — what the website uses. Unchanged.
-- **Bearer tokens** — for API clients holding a real account's password, via the
-  `bearer` plugin.
-- **Agent headers** — `X-Agent-Key` plus `X-Customer-Ref`, for stateless agent calls.
+- **Bearer tokens** — how an agent presents a shopper's session, via the `bearer` plugin.
 
-Agents do not sign in at all. Send `X-Agent-Key` alongside an opaque `X-Customer-Ref`
-naming the shopper. Locally this needs no setup — outside production the well-known key
-`dev-agent-key` is accepted:
+An agent sends two credentials, and they answer different questions. `X-Agent-Key` proves
+the caller is the GLOWA agent; a bearer token proves which shopper the call is for. The
+shopper gets that token by completing the email-OTP flow, so they must be signed in before
+the first cart write — there is no anonymous agent bag.
+
+Locally the agent key needs no setup: outside production the well-known key
+`dev-agent-key` is accepted. Set `DEMO_OTP_CODE` so sign-in can complete without a mail
+provider.
 
 ```bash
-curl -s -H "X-Agent-Key: dev-agent-key" -H "X-Customer-Ref: ig_17841400000000000" \
+export AGENT_KEY=dev-agent-key
+
+curl -s -X POST -H "X-Agent-Key: $AGENT_KEY" -H 'Content-Type: application/json' \
+  -d '{"email":"ada@example.com","type":"sign-in"}' \
+  localhost:3000/api/auth/email-otp/send-verification-otp
+
+TOKEN=$(curl -s -X POST -H "X-Agent-Key: $AGENT_KEY" -H 'Content-Type: application/json' \
+  -d '{"email":"ada@example.com","otp":"000000"}' \
+  localhost:3000/api/auth/sign-in/email-otp | jq -r .data.token)
+
+curl -s -H "X-Agent-Key: $AGENT_KEY" -H "Authorization: Bearer $TOKEN" \
   localhost:3000/api/wishlist
 ```
 
-An unseen ref is provisioned automatically on first use.
+`X-Customer-Ref` has been removed. Requests that still send it are ignored, not rejected.
 
 For anything shared, set `AGENT_API_KEY` (`openssl rand -hex 32`). It takes a
 comma-separated list so keys can be rotated with no 401 window: add the new one, move
 the caller across, then drop the old one. **In production there is no fallback** — with
 `AGENT_API_KEY` unset the agent path is disabled and every such call returns 401. That
-is deliberate: a fixed key in the source would let anyone assert any customer ref
+is deliberate: a fixed key in the source would let anyone reach the agent routes
 against the public URL.
 
 **There is no passwordless sign-in.** The email-OTP flow was removed along with its

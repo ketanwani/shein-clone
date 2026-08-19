@@ -28,9 +28,7 @@ const METHOD_STYLES: Record<ApiEndpoint["method"], string> = {
 const AUTH_STYLES: Record<ApiEndpoint["auth"], string> = {
   public: "bg-muted text-muted-foreground",
   cart: "bg-amber-50 text-amber-900",
-  session: "bg-accent/10 text-accent",
   bearer: "bg-sky-50 text-sky-900",
-  agent: "bg-emerald-50 text-emerald-900",
   agentKey: "bg-emerald-50 text-emerald-900",
   shopper: "bg-violet-50 text-violet-900",
 }
@@ -267,19 +265,19 @@ export default async function ApiDocsPage() {
           <section id="quickstart" className="scroll-mt-24">
             <h2 className="font-serif text-2xl font-extrabold">Agent quickstart</h2>
             <p className="mt-2 text-sm text-foreground/80">
-              A complete buy flow. Send <code className="font-mono text-xs">X-Agent-Key</code> throughout. Steps 4–6
-              name the shopper with <code className="font-mono text-xs">X-Customer-Ref</code>; steps 8–9 use the bearer
-              token from step 7 instead. No cookie jar is involved at any point.
+              A complete buy flow. Send <code className="font-mono text-xs">X-Agent-Key</code> throughout, and{" "}
+              <code className="font-mono text-xs">Authorization: Bearer</code> from step 4 onwards. No cookie jar is
+              involved at any point.
             </p>
             <ol className="mt-4 space-y-2 text-sm text-foreground/80">
               {[
                 ["GET /api/collections", "discover valid category slugs"],
                 ["GET /api/search?q=summer%20dress", "find candidate products"],
                 ["GET /api/products/{handle}", "read variants[].id — that GID is the merchandiseId"],
-                ["POST /api/cart/lines", "add to the bag — no profile data needed to get this far"],
+                ["POST /api/auth/sign-in/email-otp", "sign the shopper in; keep data.token. Needed before the bag, not just checkout"],
+                ["POST /api/cart/lines", "add to the bag, as the signed-in shopper"],
                 ["GET /api/cart", "confirm lines and totals"],
-                ["GET /api/customer", "only now: read missing[] to see what to ask for, addresses[] to offer one"],
-                ["POST /api/auth/sign-in/email-otp", "sign the shopper in with the code they read back; keep data.token"],
+                ["GET /api/customer", "read missing[] to see what to ask for, addresses[] to offer one"],
                 ["POST /api/orders", "checkout with address_id or an inline address, plus an Idempotency-Key"],
                 ["GET /api/orders", "verify the order was recorded"],
               ].map(([call, why], index) => (
@@ -298,29 +296,23 @@ export default async function ApiDocsPage() {
             <h3 className="mt-8 font-serif text-lg font-bold">Authenticating</h3>
             <p className="mt-2 text-sm text-foreground/80">
               <code className="font-mono text-xs">X-Agent-Key</code> is the shared secret GLOWA issued you, proving the
-              caller is the agent; it goes on every call and never changes. What names the{" "}
-              <em>shopper</em> depends on how much you are asking for.
+              caller is the agent. It goes on every call, never changes, and proves the caller and nothing else.
             </p>
             <p className="mt-2 text-sm text-foreground/80">
-              The bag and the profile take <code className="font-mono text-xs">X-Customer-Ref</code>, an opaque, stable
-              id for the shopper you are acting for. An unseen ref is provisioned on first use, so you can fill a bag
-              before there is an account at all.
+              A <strong>bearer token is the only way to name a shopper</strong>. The bag, the profile and address book,
+              the wishlist and the order history are all keyed by the signed-in account, so the shopper must sign in
+              before the <em>first add-to-bag</em> — not merely before checkout. There is no anonymous agent bag.
             </p>
             <p className="mt-2 text-sm text-foreground/80">
-              The wishlist and the order history will not accept a ref. Those are the shopper&apos;s own saved items and
-              purchases, and a ref is only you claiming who you are acting for — accepting one there would make the
-              shared secret enough to read anyone you can name. They take a bearer token the shopper obtained by reading
-              back a code sent to their address, and it is sent <em>alongside</em> the agent key, never instead of it.
-              The two are checked independently: a valid token with no agent key is still a 401.
+              <code className="font-mono text-xs">X-Customer-Ref</code> used to be a second answer: an opaque,
+              per-conversation id the agent asserted. It has been removed — a ref is the caller claiming who it is
+              acting for, so everything it unlocked was reachable by anyone holding the shared secret. Requests that
+              still send the header are <strong>ignored, not rejected</strong>, so a stale integration degrades to a
+              recoverable 401 rather than breaking.
             </p>
-            <Code className="mt-3">{`export AGENT_KEY='...'                     # the secret GLOWA issued you
-export CUSTOMER_REF='ig_17841400000000000'  # opaque, stable, one per shopper
+            <Code className="mt-3">{`export AGENT_KEY='...'   # the secret GLOWA issued you
 
-# The bag: agent key + customer ref.
-curl -s -H "X-Agent-Key: $AGENT_KEY" -H "X-Customer-Ref: $CUSTOMER_REF" \\
-  '${baseUrl}/api/cart'
-
-# Sign the shopper in, once. The code goes to them, never to you.
+# 1. Sign the shopper in. The code goes to them, never to you.
 curl -s -X POST -H "X-Agent-Key: $AGENT_KEY" -H 'Content-Type: application/json' \\
   -d '{"email":"ada@example.com","type":"sign-in"}' \\
   '${baseUrl}/api/auth/email-otp/send-verification-otp'
@@ -328,25 +320,27 @@ curl -s -X POST -H "X-Agent-Key: $AGENT_KEY" -H 'Content-Type: application/json'
 curl -s -X POST -H "X-Agent-Key: $AGENT_KEY" -H 'Content-Type: application/json' \\
   -d '{"email":"ada@example.com","otp":"123456"}' \\
   '${baseUrl}/api/auth/sign-in/email-otp'
-# -> {"data":{"token":"...","expiresAt":"2026-08-26T09:41:12.104Z","user":{...}}}
+# -> {"data":{"token":"...","expiresAt":"...","expiresAtUnix":1787739561,"user":{...}}}
 
 export TOKEN='...'   # data.token from the response above
 
-# The wishlist: agent key + the shopper's token.
+# 2. Everything shopper-scoped: agent key + the shopper's token.
 curl -s -H "X-Agent-Key: $AGENT_KEY" -H "Authorization: Bearer $TOKEN" \\
-  '${baseUrl}/api/wishlist'`}</Code>
+  '${baseUrl}/api/cart'`}</Code>
             <p className="mt-3 text-sm text-foreground/80">
-              Sending <code className="font-mono text-xs">X-Customer-Ref</code> without a valid key is a 401, never an
-              anonymous fallback, and if the server has no{" "}
-              <code className="font-mono text-xs">AGENT_API_KEY</code> configured the agent path is disabled entirely.
-              Browser clients sign in with email and password instead.
+              If the server has no <code className="font-mono text-xs">AGENT_API_KEY</code> configured the agent path is
+              disabled entirely and every call returns 401. Browser clients sign in with email and password instead, and
+              an anonymous browser bag rides on a <code className="font-mono text-xs">cartId</code> cookie until its
+              shopper signs in.
             </p>
             <p className="mt-3 text-sm text-foreground/80">
               Sign-in never tells you whether an address has an account: the send call returns the same 200 either way,
               and every verification failure is the same 401{" "}
               <code className="font-mono text-xs">invalid_code</code>. Do not report &ldquo;no account found&rdquo; to a
               shopper — you were not told that. Sessions last 7 days and there is no refresh token, so store{" "}
-              <code className="font-mono text-xs">data.expiresAt</code> and run the flow again when it passes.
+              <code className="font-mono text-xs">data.expiresAt</code> or{" "}
+              <code className="font-mono text-xs">data.expiresAtUnix</code> and run the flow again when it passes. A 401
+              on a shopper-scoped call is routine and recoverable — re-run the flow and retry.
             </p>
 
             <h3 className="mt-8 font-serif text-lg font-bold">Conventions</h3>

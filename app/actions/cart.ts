@@ -37,30 +37,18 @@ function writeCartCookie(store: Awaited<ReturnType<typeof cookies>>, cartId: str
 }
 
 /**
- * Finds the caller's bag. Three ways in, one shared store (the user_cart table):
+ * Finds the caller's bag. Two ways in, one shared store (the user_cart table):
  *
- * Agent: keyed by the asserted X-Customer-Ref alone. Cookies are neither read nor
- * written — the agent cannot carry one between calls, which is the whole problem this
- * path exists to solve.
+ * Signed in, by bearer token or cookie: keyed by the account. This is the only path an
+ * agent has — there is no ref to key an anonymous agent bag to any more, and the route
+ * turns an agent call without a token away before it reaches here.
  *
- * Signed in via the website: keyed by the account, so a bearer token is enough. A bag
- * already started anonymously is adopted on the first authenticated call, so nothing is
- * lost when a guest signs in mid-shop.
- *
- * Anonymous browser: the cartId cookie, exactly as before.
+ * Anonymous browser: the cartId cookie, exactly as before. A bag started that way is
+ * adopted by the account on the first authenticated call, so signing in mid-shop loses
+ * nothing.
  */
 async function resolveCartId(create: boolean): Promise<string | null> {
   const subject = await resolveSubject()
-
-  if (subject?.viaAgent) {
-    const saved = await savedCartId(subject.userId)
-    if (saved) return saved
-    if (!create) return null
-
-    const cart = await createCart()
-    await rememberCart(subject.userId, cart.id)
-    return cart.id
-  }
 
   const store = await cookies()
   const cookieCartId = store.get(CART_COOKIE)?.value ?? null
@@ -120,11 +108,10 @@ export async function removeCartLineAction(lineId: string): Promise<Cart> {
 export async function clearCartAction(): Promise<void> {
   const subject = await resolveSubject()
 
-  // An agent has no cookie jar; dropping the stored reference is the whole operation.
-  if (!subject?.viaAgent) {
-    const store = await cookies()
-    store.delete(CART_COOKIE)
-  }
+  // Harmless for an agent, which has no cookie jar to clear; dropping the stored
+  // reference below is what actually abandons its bag.
+  const store = await cookies()
+  store.delete(CART_COOKIE)
 
   if (subject) await db.delete(userCart).where(eq(userCart.userId, subject.userId))
 }
