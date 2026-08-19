@@ -3,6 +3,7 @@ import Link from "next/link"
 import { getProducts } from "@/lib/shopify/products"
 import { ProductGrid } from "@/components/product/product-grid"
 import { FlashSale } from "@/components/home/flash-sale"
+import { collectionPath } from "@/lib/routes"
 
 const CATEGORY_TILES = [
   { slug: "women", name: "Women", image: "/hero/cat-women.png" },
@@ -43,7 +44,7 @@ export default async function HomePage() {
                   Thousands of new styles. Tiny prices. Fresh looks every single day.
                 </p>
                 <Link
-                  href="/collections/new-in"
+                  href={collectionPath("new-in")}
                   className="mt-6 inline-block rounded-full bg-accent px-8 py-3 text-sm font-bold text-accent-foreground transition hover:opacity-90"
                 >
                   Shop New In
@@ -60,7 +61,7 @@ export default async function HomePage() {
           {CATEGORY_TILES.map((tile) => (
             <Link
               key={tile.slug}
-              href={`/collections/${tile.slug}`}
+              href={collectionPath(tile.slug)}
               className="group relative aspect-square overflow-hidden rounded-lg bg-muted"
             >
               <Image
@@ -88,7 +89,7 @@ export default async function HomePage() {
             <h2 className="font-serif text-2xl font-extrabold md:text-3xl">New In</h2>
             <p className="text-sm text-muted-foreground">Fresh arrivals, just for you</p>
           </div>
-          <Link href="/collections/new-in" className="text-sm font-semibold text-accent hover:underline">
+          <Link href={collectionPath("new-in")} className="text-sm font-semibold text-accent hover:underline">
             View all
           </Link>
         </div>

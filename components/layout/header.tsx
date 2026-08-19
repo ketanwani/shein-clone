@@ -7,6 +7,7 @@ import { Search, Heart, ShoppingBag, User, Menu, X } from "lucide-react"
 import { CATEGORIES } from "@/lib/categories"
 import { useCart } from "@/components/cart/cart-provider"
 import { CartDrawer } from "@/components/cart/cart-drawer"
+import { collectionPath } from "@/lib/routes"
 
 type SessionUser = { name?: string | null } | null
 
@@ -97,7 +98,7 @@ export function Header({ user }: { user: SessionUser }) {
         {CATEGORIES.map((c) => (
           <Link
             key={c.slug}
-            href={`/collections/${c.slug}`}
+            href={collectionPath(c.slug)}
             className={`whitespace-nowrap text-sm font-medium hover:text-accent ${
               c.slug === "sale" ? "text-sale" : "text-foreground"
             }`}
@@ -137,7 +138,7 @@ export function Header({ user }: { user: SessionUser }) {
               {CATEGORIES.map((c) => (
                 <Link
                   key={c.slug}
-                  href={`/collections/${c.slug}`}
+                  href={collectionPath(c.slug)}
                   onClick={() => setMobileOpen(false)}
                   className={`border-b border-border py-3 text-sm font-medium ${
                     c.slug === "sale" ? "text-sale" : ""

@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation"
 import type { Product } from "@/lib/shopify/types"
 import { ProductGrid } from "@/components/product/product-grid"
+import { collectionPath } from "@/lib/routes"
 
 const SORT_OPTIONS = [
   { value: "featured", label: "Featured" },
@@ -37,7 +38,7 @@ export function CollectionView({
           <span className="text-muted-foreground">Sort by</span>
           <select
             value={activeSort}
-            onChange={(e) => router.push(`/collections/${slug}?sort=${e.target.value}`)}
+            onChange={(e) => router.push(`${collectionPath(slug)}?sort=${e.target.value}`)}
             className="rounded-full border border-border bg-background px-4 py-2 text-sm outline-none focus:border-accent"
           >
             {SORT_OPTIONS.map((o) => (

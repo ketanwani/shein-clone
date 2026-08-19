@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation"
 import { X, Minus, Plus, ShoppingBag, Trash2 } from "lucide-react"
 import { useCart } from "./cart-provider"
 import { formatMoney } from "@/lib/utils/format"
+import { productPath } from "@/lib/routes"
 
 export function CartDrawer() {
   const { cart, isOpen, isPending, closeCart, updateItem, removeItem } = useCart()
@@ -62,7 +63,7 @@ export function CartDrawer() {
               {cart.lines.map((line) => (
                 <div key={line.id} className="flex gap-3 border-b border-border py-4">
                   <Link
-                    href={`/products/${line.merchandise.product.handle}`}
+                    href={productPath(line.merchandise.product.handle)}
                     onClick={closeCart}
                     className="relative h-24 w-20 shrink-0 overflow-hidden rounded bg-muted"
                   >
@@ -79,7 +80,7 @@ export function CartDrawer() {
                   <div className="flex flex-1 flex-col">
                     <div className="flex justify-between gap-2">
                       <Link
-                        href={`/products/${line.merchandise.product.handle}`}
+                        href={productPath(line.merchandise.product.handle)}
                         onClick={closeCart}
                         className="line-clamp-2 text-sm hover:underline"
                       >
