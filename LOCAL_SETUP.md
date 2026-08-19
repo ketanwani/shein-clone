@@ -74,17 +74,20 @@ whatever is pending.
 change made that way will not reach any other database. Generate a migration before
 committing.
 
-**A database that predates migrations needs baselining once.** `0000` is a snapshot of
-the whole schema in bare `CREATE TABLE` form, so against a database that already has
-those tables it fails on the first one — and, since it runs in the build, blocks the
-deploy. Record it as applied instead:
+**No baselining is needed.** Migration `0000` is deliberately idempotent — `IF NOT
+EXISTS` on every table, column and index, and `DO` blocks for the foreign keys — so it
+runs correctly against a database that predates migrations and already holds most of
+those objects, against one that is fully current, and against an empty one. A drifted
+database is repaired by the first deploy; nothing has to be run by hand.
 
-```bash
-node scripts/baseline-migrations.mjs --sql --through 0000   # paste into the DB console
-DATABASE_URL=... npm run db:baseline -- --through 0000      # or apply directly
-```
+It also clears duplicate `(userId, productHandle)` wishlist rows before creating the
+unique index, since that is the one statement real data can block.
 
-A brand-new database needs none of this: `0000` runs normally and creates everything.
+Later migrations are generated normally and need none of this — only the baseline is
+written that way, because only the baseline has to meet an existing database.
+
+`scripts/baseline-migrations.mjs` is kept for the general case of marking a migration
+as already applied, but this schema does not need it.
 
 `scripts/sync-schema.mjs` remains for repairing a database that drifted before any of
 this existed. It is additive and idempotent, and needs no migration history.
