@@ -1,5 +1,5 @@
 import { getProduct } from "@/lib/shopify/products"
-import { handle as withErrors, json, notFound } from "@/lib/api/http"
+import { handlePublic as withErrors, json, notFound } from "@/lib/api/http"
 
 export async function GET(request: Request, { params }: { params: Promise<{ handle: string }> }) {
   return withErrors(request, async () => {

@@ -38,11 +38,14 @@ export async function syncWishlist(guestHandles: string[]): Promise<string[] | n
   const userId = await getUserId()
   if (!userId) return null
 
-  if (guestHandles.length > 0) {
+  // De-duplicated first: ON CONFLICT cannot fix up a row the same statement already
+  // inserted, so a localStorage list holding the same handle twice would error outright.
+  const unique = [...new Set(guestHandles)]
+  if (unique.length > 0) {
     await db
       .insert(wishlistItem)
-      .values(guestHandles.map((handle) => ({ userId, productHandle: handle })))
-      .onConflictDoNothing()
+      .values(unique.map((handle) => ({ userId, productHandle: handle })))
+      .onConflictDoNothing({ target: [wishlistItem.userId, wishlistItem.productHandle] })
   }
 
   return getServerWishlist() as Promise<string[]>
@@ -51,7 +54,12 @@ export async function syncWishlist(guestHandles: string[]): Promise<string[] | n
 export async function addToServerWishlist(handle: string) {
   const userId = await getUserId()
   if (!userId) return
-  await db.insert(wishlistItem).values({ userId, productHandle: handle }).onConflictDoNothing()
+  // Naming the target matters: an unqualified onConflictDoNothing only covers the
+  // primary key, which is a serial and never collides, so re-saving would duplicate.
+  await db
+    .insert(wishlistItem)
+    .values({ userId, productHandle: handle })
+    .onConflictDoNothing({ target: [wishlistItem.userId, wishlistItem.productHandle] })
 }
 
 export async function removeFromServerWishlist(handle: string) {

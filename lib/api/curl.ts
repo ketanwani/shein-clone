@@ -28,10 +28,20 @@ export function curlFor(endpoint: ApiEndpoint, baseUrl = DEFAULT_BASE_URL) {
   if (endpoint.method !== "GET") parts.push(`-X ${endpoint.method}`)
 
   // These docs are agent-facing, so show the stateless header path. An agent has no
-  // cookie jar and cannot complete an OTP flow, which rules out both browser options.
+  // cookie jar, which rules out the browser options.
   if (endpoint.auth === "session" || endpoint.auth === "cart" || endpoint.auth === "agent") {
     parts.push(`-H "X-Agent-Key: $AGENT_KEY"`)
     parts.push(`-H "X-Customer-Ref: $CUSTOMER_REF"`)
+  }
+
+  // Sign-in: the caller proves itself, and there is no shopper to name yet.
+  if (endpoint.auth === "agentKey") parts.push(`-H "X-Agent-Key: $AGENT_KEY"`)
+
+  // Both credentials, because both are checked. X-Customer-Ref is not one of them here:
+  // the shopper's own token is what names them.
+  if (endpoint.auth === "shopper") {
+    parts.push(`-H "X-Agent-Key: $AGENT_KEY"`)
+    parts.push(`-H "Authorization: Bearer $TOKEN"`)
   }
 
   // Better Auth routes only understand the session token.

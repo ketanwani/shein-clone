@@ -8,14 +8,21 @@
  */
 
 /**
- * "cart"    — agent headers, a bearer token, or the anonymous cartId cookie.
- * "session" — agent headers or a bearer token; there is no anonymous form.
- * "bearer"  — a bearer token only. Better Auth owns these routes and knows nothing
- *             about the agent headers, so advertising the agent path there would lie.
- * "agent"   — agent headers only. The customer surface has no browser equivalent; the
- *             website manages the same data through the account pages.
+ * "cart"     — agent headers, a bearer token, or the anonymous cartId cookie.
+ * "session"  — agent headers or a bearer token; there is no anonymous form.
+ * "bearer"   — a bearer token only. Better Auth owns these routes and knows nothing
+ *              about the agent headers, so advertising the agent path there would lie.
+ * "agent"    — agent headers only. The customer surface has no browser equivalent; the
+ *              website manages the same data through the account pages.
+ * "agentKey" — X-Agent-Key alone. The sign-in endpoints: the caller must be the
+ *              integration, but there is no shopper to name yet — naming one is what
+ *              the flow is for.
+ * "shopper"  — X-Agent-Key AND a bearer token, checked independently. Neither one
+ *              substitutes for the other, and X-Customer-Ref is not accepted: on a
+ *              shopper's saved items and order history, a ref would let anyone holding
+ *              the shared secret read a named shopper without that shopper signing in.
  */
-export type ApiAuth = "public" | "cart" | "session" | "bearer" | "agent"
+export type ApiAuth = "public" | "cart" | "session" | "bearer" | "agent" | "agentKey" | "shopper"
 
 export type JsonSchema = Record<string, unknown>
 
@@ -77,6 +84,8 @@ export const AUTH_LABELS: Record<ApiAuth, string> = {
   session: "Agent headers, or a bearer token",
   bearer: "Bearer token or session cookie — no agent path",
   agent: "Agent headers — X-Agent-Key and X-Customer-Ref",
+  agentKey: "X-Agent-Key only — no shopper named yet",
+  shopper: "X-Agent-Key and the shopper's bearer token — both required",
 }
 
 /** Documented on every endpoint an agent can call, so the two headers are never implicit. */
@@ -100,7 +109,20 @@ export const CUSTOMER_REF_PARAM: ApiParam = {
   example: "ig_17841400000000000",
 }
 
+export const BEARER_PARAM: ApiParam = {
+  name: "Authorization",
+  in: "header",
+  type: "string",
+  required: true,
+  description:
+    "`Bearer <token>`, using the token from POST /api/auth/sign-in/email-otp (found at `data.token`). Identifies the shopper, where X-Agent-Key identifies the caller — both are required and neither substitutes for the other. Cookies are not required and not used: every call is independent.",
+  example: "Bearer $TOKEN",
+}
+
 const AGENT_HEADERS: ApiParam[] = [AGENT_KEY_PARAM, CUSTOMER_REF_PARAM]
+
+/** Endpoints where the shopper themselves must have signed in. */
+const SHOPPER_HEADERS: ApiParam[] = [AGENT_KEY_PARAM, BEARER_PARAM]
 
 // --- JSON Schema components ------------------------------------------------
 
@@ -229,6 +251,31 @@ export const SCHEMAS: Record<string, JsonSchema> = {
       addresses: arrayOf(ref("Address")),
     },
     ["status", "missing", "addresses"],
+  ),
+  User: obj(
+    {
+      id: str("Stable account id. This is what the wishlist and orders are keyed on."),
+      email: str(),
+      name: str("Empty for an account created by OTP, which asks for nothing but an address."),
+      emailVerified: bool("True after a correct code, which is the only way an OTP account is created."),
+      image: nullable(str()),
+      createdAt: str("ISO 8601, UTC."),
+      updatedAt: str("ISO 8601, UTC."),
+    },
+    ["id", "email", "name", "emailVerified", "createdAt", "updatedAt"],
+  ),
+  Session: obj(
+    {
+      id: str(),
+      token: str("The same value the sign-in response returned at data.token."),
+      expiresAt: str("ISO 8601, UTC."),
+      createdAt: str("ISO 8601, UTC."),
+      updatedAt: str("ISO 8601, UTC."),
+      userId: str(),
+      ipAddress: nullable(str()),
+      userAgent: nullable(str()),
+    },
+    ["id", "token", "expiresAt", "userId"],
   ),
   Error: obj(
     {
@@ -396,6 +443,30 @@ const AGENT_UNAUTHORIZED = errorResponse(401, "Missing or wrong X-Agent-Key, or 
   },
 })
 
+/**
+ * The two ways a shopper-scoped call is turned away. Both are 401 with a machine-readable
+ * code, never a redirect and never a 200 with an empty body, because the agent branches
+ * on this to decide whether to re-run sign-in.
+ */
+const NO_SHOPPER_TOKEN = errorResponse(401, "The bearer token is missing, malformed or expired.", {
+  error: {
+    code: "unauthorized",
+    message: "This endpoint requires a signed-in shopper.",
+    hint: "Send `Authorization: Bearer <token>` using the token from POST /api/auth/sign-in/email-otp (found at `data.token`), together with X-Agent-Key. The two are checked independently and neither substitutes for the other.",
+  },
+})
+
+/** Listed alongside NO_SHOPPER_TOKEN so the docs show that one credential is not enough. */
+const NO_AGENT_KEY = errorResponse(401, "X-Agent-Key is missing or wrong, whatever the bearer token says.", {
+  error: {
+    code: "unauthorized",
+    message: "Invalid or missing X-Agent-Key.",
+    hint: "Send X-Agent-Key with the shared secret issued by GLOWA, plus X-Customer-Ref identifying the shopper.",
+  },
+})
+
+const SHOPPER_UNAUTHORIZED: ApiResponse[] = [NO_SHOPPER_TOKEN, NO_AGENT_KEY]
+
 const CUSTOMER_REF_REQUIRED = errorResponse(400, "The agent key checked out but no shopper was named.", {
   error: {
     code: "bad_request",
@@ -441,8 +512,103 @@ export const API_GROUPS: ApiGroup[] = [
     name: "Auth",
     slug: "auth",
     description:
-      "**Agents do not use these routes.** An agent authenticates itself with `X-Agent-Key` and names the shopper with `X-Customer-Ref` on the Cart, Wishlist and Orders calls directly — no sign-in step, no token to store, and nothing for the shopper to fetch from an inbox. See those tags for the headers. What remains here is the website's own email-and-password login, kept for browser users; there is no passwordless flow, because a demo one that accepted a fixed code would let anyone sign in as any address. Better Auth owns these four routes, so their errors are flat `{message, code}` objects rather than the storefront's nested `{error: {...}}` shape.",
+      "Two ways in, for two different callers.\n\n**Email OTP, for an agent acting for one shopper.** `send-verification-otp` mails a 6-digit code; `sign-in/email-otp` exchanges it for a session token at `data.token`, valid 7 days. Send that token as `Authorization: Bearer <token>` on the Wishlist and Orders calls, alongside `X-Agent-Key`. No cookie is involved at any point, and the account is created when a correct code arrives — never when one is requested — so a mistyped address leaves nothing behind. No refresh token is issued: re-run this flow when `data.expiresAt` passes.\n\n**Email and password, for the website's own login forms.** Unchanged, and still owned by Better Auth, so those two routes return flat `{message, code}` errors rather than the storefront's nested `{error: {...}}` shape.\n\nThe agent's other credential, `X-Customer-Ref`, still identifies the shopper on the Cart and Customer calls, where the agent is filling in details before there is an account. It is **not** accepted on the wishlist or the order history: there, only a token the shopper themselves obtained will do.",
     endpoints: [
+      {
+        method: "POST",
+        path: "/api/auth/email-otp/send-verification-otp",
+        summary: "Send a sign-in code",
+        description:
+          "Emails a 6-digit code, valid for 10 minutes and single-use.\n\nThe response is identical whether or not the address has an account, and no account is created here. Both are deliberate: this endpoint is reachable from an Instagram DM, so an answer that differed would let anyone submit a list of addresses and learn which ones shop at GLOWA, and provisioning on request would hand an account to whoever owns a mistyped address.",
+        auth: "agentKey",
+        params: [AGENT_KEY_PARAM],
+        body: [
+          { name: "email", type: "string", required: true, description: "Where to send the code.", example: "ada@example.com" },
+          { name: "type", type: "string", required: true, description: 'Must be "sign-in".', example: "sign-in" },
+        ],
+        responses: [
+          {
+            status: 200,
+            description: "Accepted. Says nothing about whether the address has an account, and never contains the code.",
+            schema: obj({ success: bool() }, ["success"]),
+            example: { success: true },
+          },
+          errorResponse(400, "Missing email, or a type other than sign-in.", {
+            error: { code: "bad_request", message: '"email" is required and must be a non-empty string.' },
+          }),
+          errorResponse(429, "Too many codes for this address, or from this source.", {
+            error: {
+              code: "rate_limited",
+              message: "Too many verification codes requested.",
+              hint: "Wait 240s before requesting another code.",
+            },
+          }),
+          NO_AGENT_KEY,
+          DATABASE_UNAVAILABLE,
+        ],
+        notes: [
+          "The code is never returned in the body. An agent holding it could sign the shopper in without them, which is exactly the confirmation step this flow exists to get.",
+          "Limited to 3 codes per address per 10 minutes. A separate, much looser per-source limit is only a backstop — every shopper the integration signs in shares the same egress addresses.",
+          "No transactional email provider is configured on this deployment, so nothing is actually delivered. Set DEMO_OTP_CODE to make sign-in accept one fixed code instead; see the sign-in endpoint.",
+        ],
+      },
+      {
+        method: "POST",
+        path: "/api/auth/sign-in/email-otp",
+        summary: "Exchange a code for a session token",
+        description:
+          "Verifies the code and returns a session token at **`data.token`**, with its expiry at **`data.expiresAt`** (ISO 8601, UTC). Sessions last 7 days.\n\nA first-time address is registered here, so there is no separate signup step. No refresh token is issued — when `data.expiresAt` passes, run this flow again.\n\nEvery failure is the same 401 `invalid_code`: a wrong code, an expired code, one attempted too many times, and an address with no account are indistinguishable by design.",
+        auth: "agentKey",
+        params: [AGENT_KEY_PARAM],
+        body: [
+          { name: "email", type: "string", required: true, description: "The address the code was sent to.", example: "ada@example.com" },
+          { name: "otp", type: "string", required: true, description: "The 6-digit code.", example: "000000" },
+        ],
+        responses: [
+          {
+            status: 200,
+            description: "Signed in. The token goes in the Authorization header on subsequent shopper-scoped calls.",
+            schema: obj(
+              {
+                data: obj(
+                  { token: str("Session token. Send as `Authorization: Bearer <token>`."), expiresAt: str("ISO 8601, UTC."), user: ref("User") },
+                  ["token", "expiresAt", "user"],
+                ),
+              },
+              ["data"],
+            ),
+            example: {
+              data: {
+                token: "V1DSf3g8PL2rp9CNtFc6KFaZSypGM82Y",
+                expiresAt: "2026-08-26T09:41:12.104Z",
+                user: {
+                  id: "ST6bZD9LrjCz9p43z45Exn7xyOA1Fx12",
+                  email: "ada@example.com",
+                  name: "",
+                  emailVerified: true,
+                  image: null,
+                  createdAt: "2026-08-19T09:41:12.100Z",
+                  updatedAt: "2026-08-19T09:41:12.100Z",
+                },
+              },
+            },
+          },
+          errorResponse(401, "Wrong code, expired code, too many attempts, or an address with no account — one answer for all four.", {
+            error: {
+              code: "invalid_code",
+              message: "That code is not valid.",
+              hint: "Request a new code with POST /api/auth/email-otp/send-verification-otp, then send it within 10 minutes. Codes are single-use.",
+            },
+          }),
+          NO_AGENT_KEY,
+          DATABASE_UNAVAILABLE,
+        ],
+        notes: [
+          "The token lives at `data.token` and the expiry at `data.expiresAt`. Both paths are part of the contract — an integration extracts the token by path, and silently stops capturing it if the shape moves.",
+          "`data.expiresAt` is read back from the session the server will actually enforce, not computed from the configured window.",
+          "When DEMO_OTP_CODE is set on the server, that one fixed value is accepted in addition to a genuine code. It changes nothing else: the account is still created here, the response shape is identical, and failures are still uniform. Unset, the fixed value is not special-cased anywhere.",
+        ],
+      },
       {
         method: "POST",
         path: "/api/auth/sign-up/email",
@@ -499,14 +665,45 @@ export const API_GROUPS: ApiGroup[] = [
         path: "/api/auth/get-session",
         summary: "Inspect the current session",
         description:
-          "Returns the signed-in user, or null when the credential is missing or expired. Accepts either a bearer token or a cookie. Use it to check whether a stored token is still valid before a write. Agents have no session to inspect — this route does not understand the agent headers.",
-        auth: "bearer",
+          "Returns the account behind the bearer token. Use it to check a stored token is still good before a write, rather than discovering it is not partway through a checkout.\n\nAn absent or expired session is a **401**, not Better Auth's 200 with a `null` body: the agent branches on the status to decide whether to re-run sign-in, and a 200 reads as success. A cookie works too, for the website.",
+        auth: "shopper",
+        params: SHOPPER_HEADERS,
         responses: [
           {
             status: 200,
-            description: "Session, or null when not signed in.",
-            example: { session: { id: "sess_2xyz", expiresAt: "2026-08-24T12:00:00.000Z" }, user: { id: "user_2abc123", email: "agent@example.com" } },
+            description: "The live session and the account it belongs to.",
+            schema: obj({ session: ref("Session"), user: ref("User") }, ["session", "user"]),
+            example: {
+              session: {
+                id: "ns3JPmGwcZDUQpBZTwym8dW4ew93nIrN",
+                token: "V1DSf3g8PL2rp9CNtFc6KFaZSypGM82Y",
+                expiresAt: "2026-08-26T09:41:12.104Z",
+                createdAt: "2026-08-19T09:41:12.104Z",
+                updatedAt: "2026-08-19T09:41:12.104Z",
+                userId: "ST6bZD9LrjCz9p43z45Exn7xyOA1Fx12",
+                ipAddress: "",
+                userAgent: "",
+              },
+              user: {
+                id: "ST6bZD9LrjCz9p43z45Exn7xyOA1Fx12",
+                email: "ada@example.com",
+                name: "",
+                emailVerified: true,
+                image: null,
+                createdAt: "2026-08-19T09:41:12.100Z",
+                updatedAt: "2026-08-19T09:41:12.100Z",
+              },
+            },
           },
+          errorResponse(401, "No live session for this token.", {
+            error: {
+              code: "unauthorized",
+              message: "No active session for this token.",
+              hint: "The token is missing, malformed or expired. Run POST /api/auth/sign-in/email-otp again.",
+            },
+          }),
+          NO_AGENT_KEY,
+          DATABASE_UNAVAILABLE,
         ],
       },
       {
@@ -924,9 +1121,9 @@ export const API_GROUPS: ApiGroup[] = [
         path: "/api/wishlist",
         summary: "List saved products",
         description: "Returns the shopper's saved product handles, optionally expanded into full product objects.",
-        auth: "session",
+        auth: "shopper",
         params: [
-          ...AGENT_HEADERS,
+          ...SHOPPER_HEADERS,
           {
             name: "expand",
             in: "query",
@@ -944,7 +1141,7 @@ export const API_GROUPS: ApiGroup[] = [
             example: { count: 2, handles: ["ribbed-knit-mini-dress", "cargo-parachute-pants"], products: [PRODUCT_BRIEF] },
             exampleNote: `${ABBREVIATED} The products key is present only with expand=products.`,
           },
-          UNAUTHORIZED,
+          ...SHOPPER_UNAUTHORIZED,
           DATABASE_UNAVAILABLE,
         ],
       },
@@ -953,8 +1150,8 @@ export const API_GROUPS: ApiGroup[] = [
         path: "/api/wishlist",
         summary: "Save a product",
         description: "Adds a product handle to the wishlist. Adding one that is already saved is a no-op, so this is safe to retry.",
-        auth: "session",
-        params: AGENT_HEADERS,
+        auth: "shopper",
+        params: SHOPPER_HEADERS,
         body: [
           { name: "handle", type: "string", required: true, description: "Product handle to save.", example: "ribbed-knit-mini-dress" },
         ],
@@ -966,7 +1163,7 @@ export const API_GROUPS: ApiGroup[] = [
             example: { count: 2, handles: ["ribbed-knit-mini-dress", "cargo-parachute-pants"] },
           },
           errorResponse(400, "Missing handle.", { error: { code: "bad_request", message: '"handle" is required and must be a non-empty string.' } }),
-          UNAUTHORIZED,
+          ...SHOPPER_UNAUTHORIZED,
           DATABASE_UNAVAILABLE,
         ],
         notes: ["The handle is not verified against Shopify, so a typo is stored as-is and simply returns no product when expanded."],
@@ -976,14 +1173,14 @@ export const API_GROUPS: ApiGroup[] = [
         path: "/api/wishlist/{handle}",
         summary: "Remove a saved product",
         description: "Removes one handle. Removing something that was never saved still returns 200.",
-        auth: "session",
+        auth: "shopper",
         params: [
-          ...AGENT_HEADERS,
+          ...SHOPPER_HEADERS,
           { name: "handle", in: "path", type: "string", required: true, description: "Product handle to remove.", example: "ribbed-knit-mini-dress" },
         ],
         responses: [
           { status: 200, description: "Remaining handles.", schema: obj({ count: int(), handles: arrayOf(str()) }), example: { count: 1, handles: ["cargo-parachute-pants"] } },
-          UNAUTHORIZED,
+          ...SHOPPER_UNAUTHORIZED,
           DATABASE_UNAVAILABLE,
         ],
       },
@@ -1001,9 +1198,9 @@ export const API_GROUPS: ApiGroup[] = [
         summary: "Place an order",
         description:
           "Converts the shopper's current bag into an order and empties the bag. The credential identifies both the buyer and the bag, so no cookie is required.\n\nShip it two ways: send `address_id` from the shopper's address book, or send a full inline address, which is saved to the book for next time and whose id comes back on the order. If both are sent, `address_id` wins. `email` and `name` fall back to the stored profile, so a returning shopper checks out with nothing but an address id and a card.\n\nTotals are recomputed server-side from Shopify prices — subtotal, plus 3.99 shipping under a 29 subtotal, plus 8% tax — so no amounts are accepted from the client.",
-        auth: "session",
+        auth: "shopper",
         params: [
-          ...AGENT_HEADERS,
+          ...SHOPPER_HEADERS,
           {
             name: "Idempotency-Key",
             in: "header",
@@ -1052,7 +1249,7 @@ export const API_GROUPS: ApiGroup[] = [
               hint: "Use an id from GET /api/customer, or send a full inline address instead.",
             },
           }),
-          UNAUTHORIZED,
+          ...SHOPPER_UNAUTHORIZED,
           DATABASE_UNAVAILABLE,
         ],
         notes: [
@@ -1067,11 +1264,11 @@ export const API_GROUPS: ApiGroup[] = [
         path: "/api/orders",
         summary: "List orders",
         description: "The shopper's orders, newest first, each with its line items.",
-        auth: "session",
-        params: AGENT_HEADERS,
+        auth: "shopper",
+        params: SHOPPER_HEADERS,
         responses: [
           { status: 200, description: "Order history.", schema: obj({ count: int(), orders: arrayOf(ref("Order")) }), example: { count: 1, orders: [ORDER_EXAMPLE] } },
-          UNAUTHORIZED,
+          ...SHOPPER_UNAUTHORIZED,
           DATABASE_UNAVAILABLE,
         ],
       },
@@ -1080,15 +1277,15 @@ export const API_GROUPS: ApiGroup[] = [
         path: "/api/orders/{orderNumber}",
         summary: "Get one order",
         description: "A single order by its order number. Scoped to the shopper, so another shopper's order returns 404 even with a valid agent key.",
-        auth: "session",
+        auth: "shopper",
         params: [
-          ...AGENT_HEADERS,
+          ...SHOPPER_HEADERS,
           { name: "orderNumber", in: "path", type: "string", required: true, description: "Order number, e.g. GLW-12345678.", example: "GLW-12345678" },
         ],
         responses: [
           { status: 200, description: "The order.", schema: obj({ order: ref("Order") }), example: { order: ORDER_EXAMPLE } },
           errorResponse(404, "No such order for this user.", { error: { code: "not_found", message: 'No order "GLW-000" for the signed-in user.' } }),
-          UNAUTHORIZED,
+          ...SHOPPER_UNAUTHORIZED,
           DATABASE_UNAVAILABLE,
         ],
       },

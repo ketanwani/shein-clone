@@ -123,6 +123,21 @@ export async function assertAgentKey(): Promise<{ customerRef: string | null } |
   // request — reject it rather than falling through to the anonymous cart.
   if (presentedKey === null && !customerRef) return null
 
+  await requireAgentKey()
+  return { customerRef }
+}
+
+/**
+ * Demands a valid X-Agent-Key, rather than only checking one that happens to be present.
+ *
+ * assertAgentKey lets a request carrying no agent headers through, because browsers
+ * share most of these routes. Endpoints that exist for the integration need the stronger
+ * check: the two credentials are independent, so a request with a perfectly good bearer
+ * token and no agent key is still rejected. Neither one substitutes for the other.
+ */
+export async function requireAgentKey(): Promise<void> {
+  const presentedKey = (await headers()).get(AGENT_KEY_HEADER)
+
   const accepted = configuredKeys()
   if (accepted.length === 0) {
     throw new ApiFailure(
@@ -136,8 +151,6 @@ export async function assertAgentKey(): Promise<{ customerRef: string | null } |
   if (presentedKey === null || !secretsMatch(presentedKey, accepted)) {
     throw new ApiFailure(401, "unauthorized", "Invalid or missing X-Agent-Key.", AGENT_KEY_HINT)
   }
-
-  return { customerRef }
 }
 
 export async function resolveAgentSubject(): Promise<AgentSubject | null> {

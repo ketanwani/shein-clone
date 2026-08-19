@@ -1,10 +1,10 @@
 import { categoryQuery, getCategory } from "@/lib/categories"
 import { getProducts } from "@/lib/shopify/products"
-import { handle, json, notFound, readLimit } from "@/lib/api/http"
+import { handlePublic, json, notFound, readLimit } from "@/lib/api/http"
 import { resolveSort } from "@/lib/api/sort"
 
 export async function GET(request: Request, { params }: { params: Promise<{ slug: string }> }) {
-  return handle(request, async () => {
+  return handlePublic(request, async () => {
     const { slug } = await params
     const category = getCategory(slug)
     if (!category) throw notFound(`No collection with slug "${slug}". List them with GET /api/collections.`)
