@@ -4,12 +4,17 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "drizzle-kit migrate && next build",
     "start": "next start",
     "lint": "eslint .",
     "test:agent-auth": "node scripts/test-agent-auth.mjs",
     "db": "pglite-server --db=./.pgdata --port=5432 --max-connections=10",
-    "db:push": "drizzle-kit push"
+    "db:push": "drizzle-kit push",
+    "db:sync": "node scripts/sync-schema.mjs",
+    "db:snapshot": "node scripts/snapshot-schema.mjs",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:baseline": "node scripts/baseline-migrations.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.5.0",

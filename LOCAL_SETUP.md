@@ -53,6 +53,45 @@ token. The gitignored `.npmrc` in this directory points pnpm at
 and cannot differ from what npm published. Delete `.npmrc` on a network that can
 reach npmjs.org directly.
 
+## Database migrations
+
+Schema changes are versioned SQL files under `drizzle/`, applied automatically on deploy:
+`build` runs `drizzle-kit migrate && next build`, so a migration failure fails the build
+rather than leaving a running app pointed at a schema it does not match.
+
+Changing the schema:
+
+```bash
+# 1. edit lib/db/schema.ts, then
+npm run db:generate     # writes drizzle/NNNN_*.sql — commit it
+npm run db:migrate      # apply locally
+```
+
+Commit the generated `.sql` and everything under `drizzle/meta/`. The next deploy applies
+whatever is pending.
+
+`npm run db:push` still exists for quick local iteration, but it writes no history, so a
+change made that way will not reach any other database. Generate a migration before
+committing.
+
+**No baselining is needed.** Migration `0000` is deliberately idempotent — `IF NOT
+EXISTS` on every table, column and index, and `DO` blocks for the foreign keys — so it
+runs correctly against a database that predates migrations and already holds most of
+those objects, against one that is fully current, and against an empty one. A drifted
+database is repaired by the first deploy; nothing has to be run by hand.
+
+It also clears duplicate `(userId, productHandle)` wishlist rows before creating the
+unique index, since that is the one statement real data can block.
+
+Later migrations are generated normally and need none of this — only the baseline is
+written that way, because only the baseline has to meet an existing database.
+
+`scripts/baseline-migrations.mjs` is kept for the general case of marking a migration
+as already applied, but this schema does not need it.
+
+`scripts/sync-schema.mjs` remains for repairing a database that drifted before any of
+this existed. It is additive and idempotent, and needs no migration history.
+
 ## Authentication
 
 Two ways to present the same Better Auth session:

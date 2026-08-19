@@ -95,7 +95,7 @@ export const customerProfile = pgTable("customer_profile", {
 })
 
 // The shopper's saved shipping addresses. Scoped by userId, so an address id is only
-// ever resolvable by the customer ref that owns it — an id belonging to someone else is
+// ever resolvable by the account that owns it — an id belonging to someone else is
 // a 404, not someone else's doorstep.
 //
 // `id` is an opaque string rather than a serial because the agent quotes it back to us
