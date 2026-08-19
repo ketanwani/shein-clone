@@ -5,6 +5,11 @@
  *   DATABASE_URL=... node scripts/sync-schema.mjs --check     # read-only: what is missing
  *   DATABASE_URL=... node scripts/sync-schema.mjs --dry-run   # what it would run
  *   DATABASE_URL=... node scripts/sync-schema.mjs             # apply
+ *   node scripts/sync-schema.mjs --sql                        # print the SQL, no connection
+ *
+ * --sql needs no DATABASE_URL and opens no connection. It exists for the case where the
+ * database is only reachable from somewhere else — a Neon or Supabase web console, say —
+ * so the same statements can be pasted in by hand rather than retyped from memory.
  *
  * `drizzle-kit push` is the normal tool and remains so. This exists for the case it
  * cannot handle unattended: a database several changes behind, where push has to ask
@@ -21,8 +26,9 @@ import { Pool } from "pg"
 
 const DRY_RUN = process.argv.includes("--dry-run")
 const CHECK = process.argv.includes("--check")
+const PRINT_SQL = process.argv.includes("--sql")
 
-if (!process.env.DATABASE_URL) {
+if (!PRINT_SQL && !process.env.DATABASE_URL) {
   console.error("DATABASE_URL is not set.")
   process.exit(1)
 }
@@ -175,6 +181,33 @@ const CONSTRAINTS = [
             FOREIGN KEY ("userId") REFERENCES "user"("id") ON DELETE CASCADE`,
   },
 ]
+
+/**
+ * Prints the whole migration as pasteable SQL and exits, without connecting.
+ *
+ * The foreign keys use a DO block because Postgres has no ADD CONSTRAINT IF NOT EXISTS —
+ * the script does that lookup in JS, and this has to do it in SQL to stay idempotent.
+ */
+function printSql() {
+  console.log("-- Brings the database up to lib/db/schema.ts.")
+  console.log("-- Additive and idempotent: no DROP, safe to run twice, safe on a current database.")
+  console.log("-- Safe to run on the CURRENTLY DEPLOYED build: it does not touch agent_customer.\n")
+  console.log("BEGIN;\n")
+  for (const sql of STATEMENTS) console.log(`${sql.trim().replace(/\n\s+/g, "\n  ")};\n`)
+  for (const { name, sql } of CONSTRAINTS) {
+    console.log(`DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = '${name}') THEN
+    ${sql.trim().replace(/\n\s+/g, " ")};
+  END IF;
+END $$;\n`)
+  }
+  console.log("COMMIT;")
+}
+
+if (PRINT_SQL) {
+  printSql()
+  process.exit(0)
+}
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL })
 
