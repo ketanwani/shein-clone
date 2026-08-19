@@ -53,6 +53,42 @@ token. The gitignored `.npmrc` in this directory points pnpm at
 and cannot differ from what npm published. Delete `.npmrc` on a network that can
 reach npmjs.org directly.
 
+## Database migrations
+
+Schema changes are versioned SQL files under `drizzle/`, applied automatically on deploy:
+`build` runs `drizzle-kit migrate && next build`, so a migration failure fails the build
+rather than leaving a running app pointed at a schema it does not match.
+
+Changing the schema:
+
+```bash
+# 1. edit lib/db/schema.ts, then
+npm run db:generate     # writes drizzle/NNNN_*.sql — commit it
+npm run db:migrate      # apply locally
+```
+
+Commit the generated `.sql` and everything under `drizzle/meta/`. The next deploy applies
+whatever is pending.
+
+`npm run db:push` still exists for quick local iteration, but it writes no history, so a
+change made that way will not reach any other database. Generate a migration before
+committing.
+
+**A database that predates migrations needs baselining once.** `0000` is a snapshot of
+the whole schema in bare `CREATE TABLE` form, so against a database that already has
+those tables it fails on the first one — and, since it runs in the build, blocks the
+deploy. Record it as applied instead:
+
+```bash
+node scripts/baseline-migrations.mjs --sql --through 0000   # paste into the DB console
+DATABASE_URL=... npm run db:baseline -- --through 0000      # or apply directly
+```
+
+A brand-new database needs none of this: `0000` runs normally and creates everything.
+
+`scripts/sync-schema.mjs` remains for repairing a database that drifted before any of
+this existed. It is additive and idempotent, and needs no migration history.
+
 ## Authentication
 
 Two ways to present the same Better Auth session:
