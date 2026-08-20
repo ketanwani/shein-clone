@@ -45,6 +45,14 @@ export type ApiBodyField = {
   required?: boolean
   description: string
   example: string | number
+  /**
+   * Keep this field out of the generated curl body.
+   *
+   * For a field that is an *alternative* to others rather than an addition. Including
+   * every documented field produces a body that contradicts the endpoint's own rules —
+   * and, worse, one that is copy-pasteable and cannot work.
+   */
+  omitFromExample?: boolean
 }
 
 export type ApiResponse = {
@@ -1243,8 +1251,12 @@ export const API_GROUPS: ApiGroup[] = [
             name: "address_id",
             type: "string",
             description:
-              "An id from this shopper's own address book (GET /api/customer). Wins over an inline address. An id belonging to anyone else returns 404 — it never ships to them.",
+              "An id from this shopper's own address book (GET /api/customer). **An alternative to the inline address below, not an addition** — send one or the other. If both are sent this wins and the inline fields are ignored. An id belonging to anyone else returns 404 rather than falling back to the inline address, because falling back could ship the order to the wrong person.",
             example: "addr_9f2c41a8b7e04d13",
+            // Left out of the example body: the placeholder id belongs to nobody, and
+            // including it alongside the inline address makes the example 404 for
+            // everyone who copies it.
+            omitFromExample: true,
           },
           { name: "email", type: "string", description: "Contact email. Optional once the profile holds one.", example: "ada@example.com" },
           { name: "name", type: "string", description: "Shipping recipient. Optional once the profile holds one.", example: "Ada Lovelace" },
