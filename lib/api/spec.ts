@@ -1259,11 +1259,11 @@ export const API_GROUPS: ApiGroup[] = [
               hint: "Add at least one item first: POST /api/cart/lines with {merchandiseId, quantity} and the same X-Shopper-Email, then call POST /api/checkout-links again.",
             },
           }),
-          errorResponse(429, "Too many links minted for this shopper.", {
+          errorResponse(429, "This shopper is already holding the maximum number of unused links.", {
             error: {
               code: "rate_limited",
-              message: "Too many checkout links requested for this shopper.",
-              hint: "Wait 240s, then call POST /api/checkout-links again. The link already sent is still valid until it expires.",
+              message: "This shopper already has the maximum number of unused checkout links open.",
+              hint: "Point them at the link you already sent — it stays valid for 10 minutes and is still good. A link frees up as soon as it is used or expires, so once they finish this order you can mint the next one straight away.",
             },
           }),
           ...SHOPPER_UNAUTHORIZED,
@@ -1272,7 +1272,7 @@ export const API_GROUPS: ApiGroup[] = [
         notes: [
           "Both `url` and `expires_at` are part of the contract — a connector extracts them by literal path and breaks silently if either moves.",
           "The link works for 10 minutes and for one order. Fetching it does not spend it, so a link preview will not break it.",
-          "Limited to 5 links per email address per 10 minutes.",
+          "**A shopper may hold 3 unused links at once.** The limit is on links they have not acted on, not on how many you mint: placing an order spends that link and frees its slot immediately, so a shopper buying several items one at a time never runs out. You only see 429 after sending three links nobody used, and the fix is to point at the last one rather than to retry.",
           "Do not put the URL anywhere but the shopper's own chat: anyone holding it can complete this one purchase.",
         ],
       },

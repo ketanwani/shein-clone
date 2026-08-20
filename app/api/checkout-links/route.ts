@@ -15,14 +15,24 @@ import { handle, json } from "@/lib/api/http"
 import { callerFingerprint, consume } from "@/lib/api/rate-limit"
 import { requireShopperSubject } from "@/lib/api/subject"
 import { getCartForUser } from "@/lib/cart/store"
-import { mintGrant } from "@/lib/checkout/grant"
+import { countLiveGrants, mintGrant } from "@/lib/checkout/grant"
 
 /**
- * A link is a message to a shopper, so the budget is per address rather than per
- * caller: one shopper cannot be sprayed with links, and a busy integration serving many
- * shoppers is unaffected.
+ * How many unspent links one shopper may be holding at once.
+ *
+ * The budget is on outstanding links rather than on mints per window, because every
+ * order needs its own single-use link: a shopper working through a few items one at a
+ * time is the *best* case for this endpoint, and a per-window cap would cut them off
+ * mid-conversation. Completing a purchase spends the link and frees the slot, so buying
+ * one thing after another never runs out.
+ *
+ * It still bounds spraying, and more tightly than 5-per-10-minutes did — an unused link
+ * occupies its slot for the full ten minutes, so nobody can be sent more than three
+ * links they did not act on.
+ *
+ * Locally the guard is only ever in the way, so it is lifted rather than tuned.
  */
-const PER_EMAIL = { max: 5, windowMs: 10 * 60 * 1000 }
+const MAX_LIVE_LINKS = process.env.NODE_ENV === "production" ? 3 : 100
 
 /** Coarse backstop only; shared egress means this counts traffic, not misbehaviour. */
 const PER_SOURCE = { max: 600, windowMs: 10 * 60 * 1000 }
@@ -33,8 +43,8 @@ function throttle(key: string, rule: { max: number; windowMs: number }) {
   throw new ApiFailure(
     429,
     "rate_limited",
-    "Too many checkout links requested for this shopper.",
-    `Wait ${retryAfter}s, then call POST /api/checkout-links again. The link already sent is still valid until it expires.`,
+    "This integration is minting checkout links faster than the endpoint allows.",
+    `Wait ${retryAfter}s, then call POST /api/checkout-links again. Any link already sent is still valid until it expires.`,
   )
 }
 
@@ -44,8 +54,18 @@ export async function POST(request: Request) {
     // shopper-scoped routes, so the agent branches on the same codes it already knows.
     const subject = await requireShopperSubject()
 
-    throttle(`checkout-link:email:${subject.email ?? subject.userId}`, PER_EMAIL)
     throttle(`checkout-link:source:${callerFingerprint(request)}`, PER_SOURCE)
+
+    // Reads "you already sent them links they have not used", which is a different
+    // instruction from "wait": the agent should point at the last link, not retry.
+    if ((await countLiveGrants(subject.userId)) >= MAX_LIVE_LINKS) {
+      throw new ApiFailure(
+        429,
+        "rate_limited",
+        "This shopper already has the maximum number of unused checkout links open.",
+        "Point them at the link you already sent — it stays valid for 10 minutes and is still good. A link frees up as soon as it is used or expires, so once they finish this order you can mint the next one straight away.",
+      )
+    }
 
     // Nothing to check out is a dead end for the shopper, not something to discover
     // after they have tapped the link, so it fails here with a concrete next call.

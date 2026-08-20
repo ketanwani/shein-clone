@@ -25,7 +25,7 @@
  */
 
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto"
-import { and, eq, isNull } from "drizzle-orm"
+import { and, eq, gt, isNull, or } from "drizzle-orm"
 import { db } from "@/lib/db"
 import { checkoutGrant } from "@/lib/db/schema"
 
@@ -80,6 +80,33 @@ export async function mintGrant(userId: string): Promise<{ token: string; expire
   })
 
   return { token, expiresAt }
+}
+
+/**
+ * How many of this shopper's links are still outstanding — minted, not yet spent, not
+ * yet expired.
+ *
+ * This is the quantity worth limiting. Counting mints per window punishes a shopper who
+ * keeps buying, because every order needs its own single-use link and a chat that is
+ * going well burns through them fastest. Counting *unused* links targets the thing
+ * actually being abused: handing out links nobody asked for.
+ *
+ * A grant lives by its link TTL until someone opens it, and by the session clock after
+ * that, so both are checked.
+ */
+export async function countLiveGrants(userId: string): Promise<number> {
+  const now = new Date()
+  return db.$count(
+    checkoutGrant,
+    and(
+      eq(checkoutGrant.userId, userId),
+      isNull(checkoutGrant.consumedAt),
+      or(
+        and(isNull(checkoutGrant.sessionExpiresAt), gt(checkoutGrant.expiresAt, now)),
+        gt(checkoutGrant.sessionExpiresAt, now),
+      ),
+    ),
+  )
 }
 
 /** Rows are matched by digest; the raw token never reaches a query. */
