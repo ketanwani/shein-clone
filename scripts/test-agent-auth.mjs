@@ -223,8 +223,12 @@ async function main() {
     check("delete an existing shopper -> 200 deleted:true", del.status === 200 && delBody.deleted === true)
     check("...and reports what it removed", (delBody.counts?.wishlist_item ?? 0) >= 1)
 
+    // 400, not 401: the deleted shopper's session is gone, so the request names nobody
+    // rather than presenting something that got rejected. Written as 401 when a token
+    // was the only way to name a shopper.
     const dead = await call("/api/wishlist", { token: v.token })
-    check("...their token is dead afterwards -> 401", dead.status === 401, `got ${dead.status}`)
+    check("...their token no longer identifies anyone -> 400", dead.status === 400, `got ${dead.status}`)
+    check("...and none of their data comes back", !JSON.stringify(dead.json ?? {}).includes("doomed-handle"))
 
     const again = await signIn(victim)
     check("...and the address can sign in fresh", typeof again.token === "string" && again.token !== v.token)
