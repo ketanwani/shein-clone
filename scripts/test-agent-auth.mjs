@@ -194,9 +194,12 @@ async function main() {
   check("send-otp: identical status for known and unknown", known.status === unknown.status)
   check("send-otp: identical body", known.text === unknown.text)
 
+  // Derived, not hardcoded: a literal would collide the day someone sets DEMO_OTP_CODE
+  // to that value, and the test would then be asserting a 401 on the correct code.
+  const wrongCode = OTP === "000000" ? "111111" : "000000"
   const wrong = await call("/api/auth/sign-in/email-otp", {
     method: "POST",
-    body: { email: `${unique("nobody")}@example.com`, otp: "123456" },
+    body: { email: `${unique("nobody")}@example.com`, otp: wrongCode },
   })
   check("verify with a wrong code -> 401 invalid_code", wrong.status === 401 && wrong.json?.error?.code === "invalid_code")
 
@@ -211,7 +214,7 @@ async function main() {
     check("agent key without X-Admin-Otp -> 401", noOtp.status === 401, `got ${noOtp.status}`)
     const wrongOtp = await fetch(`${BASE}/api/admin/users?email=probe@example.com`, {
       method: "DELETE",
-      headers: { "X-Agent-Key": KEY, "X-Admin-Otp": "999999" },
+      headers: { "X-Agent-Key": KEY, "X-Admin-Otp": wrongCode },
     })
     check("agent key with a wrong X-Admin-Otp -> 401", wrongOtp.status === 401, `got ${wrongOtp.status}`)
 

@@ -45,6 +45,14 @@ export type ApiBodyField = {
   required?: boolean
   description: string
   example: string | number
+  /**
+   * Keep this field out of the generated curl body.
+   *
+   * For a field that is an *alternative* to others rather than an addition. Including
+   * every documented field produces a body that contradicts the endpoint's own rules —
+   * and, worse, one that is copy-pasteable and cannot work.
+   */
+  omitFromExample?: boolean
 }
 
 export type ApiResponse = {
@@ -243,7 +251,12 @@ export const SCHEMAS: Record<string, JsonSchema> = {
   ),
   Customer: obj(
     {
-      status: { type: "string", enum: ["new", "known"], description: '"new" means nothing is on file yet.' },
+      status: {
+        type: "string",
+        enum: ["new", "known"],
+        description:
+          '"new" means the shopper has told us nothing yet — no name, no saved address. The email is not counted, because it always resolves: it is either the address the caller named them by or the one they signed up with. Read `missing` rather than branching on this.',
+      },
       email: str("Contact data only. Absent until the shopper gives one."),
       name: str("Absent until the shopper gives one."),
       missing: {
@@ -959,9 +972,9 @@ export const API_GROUPS: ApiGroup[] = [
             status: 200,
             description: "The shopper, known or not.",
             schema: obj({ customer: ref("Customer") }),
-            example: { customer: { status: "new", missing: ["email", "name", "shipping_address"], addresses: [] } },
+            example: { customer: { status: "new", email: "ada@example.com", missing: ["name", "shipping_address"], addresses: [] } },
             exampleNote:
-              "A known shopper instead returns status \"known\", their email and name, an empty missing array, and their saved addresses.",
+              "A shopper who has told us more returns status \"known\", their name, a shorter missing array, and their saved addresses. The email is always present: it is the address the call named them by, or the one they signed up with on the website, so it never appears in `missing` for a shopper the API can resolve.",
           },
           AGENT_UNAUTHORIZED,
           DATABASE_UNAVAILABLE,
@@ -1238,8 +1251,12 @@ export const API_GROUPS: ApiGroup[] = [
             name: "address_id",
             type: "string",
             description:
-              "An id from this shopper's own address book (GET /api/customer). Wins over an inline address. An id belonging to anyone else returns 404 — it never ships to them.",
+              "An id from this shopper's own address book (GET /api/customer). **An alternative to the inline address below, not an addition** — send one or the other. If both are sent this wins and the inline fields are ignored. An id belonging to anyone else returns 404 rather than falling back to the inline address, because falling back could ship the order to the wrong person.",
             example: "addr_9f2c41a8b7e04d13",
+            // Left out of the example body: the placeholder id belongs to nobody, and
+            // including it alongside the inline address makes the example 404 for
+            // everyone who copies it.
+            omitFromExample: true,
           },
           { name: "email", type: "string", description: "Contact email. Optional once the profile holds one.", example: "ada@example.com" },
           { name: "name", type: "string", description: "Shipping recipient. Optional once the profile holds one.", example: "Ada Lovelace" },

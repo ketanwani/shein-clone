@@ -18,7 +18,11 @@ export function examplePath(endpoint: ApiEndpoint) {
 
 export function exampleBody(endpoint: ApiEndpoint): Record<string, string | number> | null {
   if (!endpoint.body) return null
-  return Object.fromEntries(endpoint.body.map((field) => [field.name, field.example]))
+  // Mutually exclusive fields are documented but excluded here, so the command that
+  // comes out of these docs is one that actually runs.
+  const fields = endpoint.body.filter((field) => !field.omitFromExample)
+  if (fields.length === 0) return null
+  return Object.fromEntries(fields.map((field) => [field.name, field.example]))
 }
 
 /** A copy-pasteable curl command that exercises the endpoint with its documented examples. */

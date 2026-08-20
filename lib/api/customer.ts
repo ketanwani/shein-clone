@@ -12,7 +12,7 @@
 import { randomUUID } from "node:crypto"
 import { and, asc, eq } from "drizzle-orm"
 import { db } from "@/lib/db"
-import { customerAddress, customerProfile } from "@/lib/db/schema"
+import { customerAddress, customerProfile, user } from "@/lib/db/schema"
 import { ApiFailure } from "@/lib/api/failure"
 
 /** Field names the agent still needs to collect. Machine-readable on purpose. */
@@ -142,6 +142,21 @@ export type CustomerProfile = {
   name: string | null
 }
 
+/**
+ * The shopper's contact details, falling back to the account itself.
+ *
+ * customer_profile only gets written when someone tells us something — a PATCH, or an
+ * order. The account row already carries a name and an email long before that: set at
+ * sign-up on the website, and set to the address the agent named for a shopper
+ * provisioned by X-Shopper-Email.
+ *
+ * Reading only the profile meant GET /api/customer reported `missing: ["email","name"]`
+ * for a shopper whose name and email we plainly had, so the agent would ask again for
+ * details it had already been given. `missing` exists precisely to stop that.
+ *
+ * This is not email-as-a-lookup-key: the account is already resolved, and this reads a
+ * column off it. Nothing here takes an address and finds a customer.
+ */
 export async function getProfile(userId: string): Promise<CustomerProfile> {
   const [row] = await db
     .select({ email: customerProfile.email, name: customerProfile.name })
@@ -149,7 +164,21 @@ export async function getProfile(userId: string): Promise<CustomerProfile> {
     .where(eq(customerProfile.userId, userId))
     .limit(1)
 
-  return { email: row?.email ?? null, name: row?.name ?? null }
+  if (row?.email && row?.name) return { email: row.email, name: row.name }
+
+  const [account] = await db
+    .select({ email: user.email, name: user.name })
+    .from(user)
+    .where(eq(user.id, userId))
+    .limit(1)
+
+  // An OTP or header-provisioned account has an empty name, which is absent, not a name.
+  const accountName = account?.name?.trim() || null
+
+  return {
+    email: row?.email ?? account?.email ?? null,
+    name: row?.name ?? accountName,
+  }
 }
 
 /** Records contact details the shopper has given. Never merges customers by email. */
@@ -193,9 +222,12 @@ export async function buildCustomerPayload(userId: string): Promise<CustomerPayl
   if (!name) missing.push("name")
   if (addresses.length === 0) missing.push("shipping_address")
 
-  // "new" means we hold nothing at all. A shopper part-way through onboarding is
-  // "known" with a shorter missing list.
-  const status = !email && !name && addresses.length === 0 ? "new" : "known"
+  // "new" means the shopper has told us nothing yet. The email is deliberately not
+  // part of that judgement: it now always resolves, being either the address the
+  // caller named them by or the one they signed up with, so counting it would make
+  // "new" unreachable and the field useless. A shopper part-way through onboarding
+  // is "known" with a shorter missing list.
+  const status = !name && addresses.length === 0 ? "new" : "known"
 
   return {
     status,
