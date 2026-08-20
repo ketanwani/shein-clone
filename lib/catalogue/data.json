@@ -1,5 +1,5 @@
 {
-  "source": "mock.shop",
+  "source": "mock.shop (bottoms, backing variants) + dummyjson.com (photography)",
   "currencyCode": "CAD",
   "products": [
     {
@@ -15,7 +15,12 @@
       "price": "18.99",
       "compareAt": "32.00",
       "currencyCode": "CAD",
-      "image": null,
+      "image": {
+        "url": "https://cdn.dummyjson.com/product-images/womens-dresses/black-women's-gown/1.webp",
+        "altText": "Ruched Mesh Bodycon Midi Dress",
+        "width": 1000,
+        "height": 1000
+      },
       "sizes": [
         "XS",
         "S",
@@ -144,7 +149,12 @@
       "price": "26.50",
       "compareAt": null,
       "currencyCode": "CAD",
-      "image": null,
+      "image": {
+        "url": "https://cdn.dummyjson.com/product-images/womens-dresses/black-women's-gown/2.webp",
+        "altText": "Floral Print Tiered Chiffon Maxi Dress",
+        "width": 1000,
+        "height": 1000
+      },
       "sizes": [
         "XS",
         "S",
@@ -273,7 +283,12 @@
       "price": "15.99",
       "compareAt": "24.00",
       "currencyCode": "CAD",
-      "image": null,
+      "image": {
+        "url": "https://cdn.dummyjson.com/product-images/womens-dresses/black-women's-gown/3.webp",
+        "altText": "Square Neck Puff Sleeve Mini Dress",
+        "width": 1000,
+        "height": 1000
+      },
       "sizes": [
         "XS",
         "S",
@@ -402,7 +417,12 @@
       "price": "21.00",
       "compareAt": null,
       "currencyCode": "CAD",
-      "image": null,
+      "image": {
+        "url": "https://cdn.dummyjson.com/product-images/womens-dresses/black-women's-gown/4.webp",
+        "altText": "Satin Cowl Neck Slip Dress",
+        "width": 1000,
+        "height": 1000
+      },
       "sizes": [
         "XS",
         "S",
@@ -531,7 +551,12 @@
       "price": "17.50",
       "compareAt": "28.00",
       "currencyCode": "CAD",
-      "image": null,
+      "image": {
+        "url": "https://cdn.dummyjson.com/product-images/womens-dresses/corset-leather-with-skirt/1.webp",
+        "altText": "Ribbed Knit Long Sleeve Bodycon Dress",
+        "width": 1000,
+        "height": 1000
+      },
       "sizes": [
         "XS",
         "S",
@@ -659,7 +684,12 @@
       "price": "23.99",
       "compareAt": null,
       "currencyCode": "CAD",
-      "image": null,
+      "image": {
+        "url": "https://cdn.dummyjson.com/product-images/womens-dresses/corset-leather-with-skirt/2.webp",
+        "altText": "Off Shoulder Smocked Tiered Sundress",
+        "width": 1000,
+        "height": 1000
+      },
       "sizes": [
         "XS",
         "S",
@@ -788,7 +818,12 @@
       "price": "19.99",
       "compareAt": "30.00",
       "currencyCode": "CAD",
-      "image": null,
+      "image": {
+        "url": "https://cdn.dummyjson.com/product-images/womens-dresses/corset-leather-with-skirt/3.webp",
+        "altText": "Halter Neck Cut Out Bodycon Dress",
+        "width": 1000,
+        "height": 1000
+      },
       "sizes": [
         "XS",
         "S",
@@ -916,7 +951,12 @@
       "price": "24.50",
       "compareAt": null,
       "currencyCode": "CAD",
-      "image": null,
+      "image": {
+        "url": "https://cdn.dummyjson.com/product-images/womens-dresses/corset-leather-with-skirt/4.webp",
+        "altText": "Wrap Front Polka Dot Midi Dress",
+        "width": 1000,
+        "height": 1000
+      },
       "sizes": [
         "XS",
         "S",
@@ -1046,7 +1086,12 @@
       "price": "29.99",
       "compareAt": "45.00",
       "currencyCode": "CAD",
-      "image": null,
+      "image": {
+        "url": "https://cdn.dummyjson.com/product-images/womens-dresses/corset-with-black-skirt/1.webp",
+        "altText": "Sequin Bodycon Party Mini Dress",
+        "width": 1000,
+        "height": 1000
+      },
       "sizes": [
         "XS",
         "S",
@@ -1174,7 +1219,12 @@
       "price": "22.00",
       "compareAt": null,
       "currencyCode": "CAD",
-      "image": null,
+      "image": {
+        "url": "https://cdn.dummyjson.com/product-images/womens-dresses/corset-with-black-skirt/2.webp",
+        "altText": "Ditsy Floral Milkmaid Sundress",
+        "width": 1000,
+        "height": 1000
+      },
       "sizes": [
         "XS",
         "S",
@@ -1302,7 +1352,12 @@
       "price": "25.99",
       "compareAt": null,
       "currencyCode": "CAD",
-      "image": null,
+      "image": {
+        "url": "https://cdn.dummyjson.com/product-images/womens-dresses/corset-with-black-skirt/3.webp",
+        "altText": "Sleeveless Belted Shirt Dress",
+        "width": 1000,
+        "height": 1000
+      },
       "sizes": [
         "XS",
         "S",
@@ -1431,7 +1486,12 @@
       "price": "39.99",
       "compareAt": "62.00",
       "currencyCode": "CAD",
-      "image": null,
+      "image": {
+        "url": "https://cdn.dummyjson.com/product-images/womens-dresses/corset-with-black-skirt/4.webp",
+        "altText": "Velvet Long Sleeve Evening Gown",
+        "width": 1000,
+        "height": 1000
+      },
       "sizes": [
         "XS",
         "S",
@@ -1562,10 +1622,10 @@
       "compareAt": "14.00",
       "currencyCode": "CAD",
       "image": {
-        "url": "https://cdn.shopify.com/s/files/1/0688/1755/1382/products/GreenWomensTshirt01.jpg?v=1675463247",
+        "url": "https://cdn.dummyjson.com/product-images/tops/blue-frock/1.webp",
         "altText": "Ribbed Knit Square Neck Crop Top",
-        "width": 4096,
-        "height": 4096
+        "width": 1000,
+        "height": 1000
       },
       "sizes": [
         "XS",
@@ -1695,10 +1755,10 @@
       "compareAt": null,
       "currencyCode": "CAD",
       "image": {
-        "url": "https://cdn.shopify.com/s/files/1/0688/1755/1382/products/GreenTshirt01.jpg?v=1675455410",
+        "url": "https://cdn.dummyjson.com/product-images/tops/blue-frock/2.webp",
         "altText": "Oversized Graphic Drop Shoulder Tee",
-        "width": 4096,
-        "height": 4096
+        "width": 1000,
+        "height": 1000
       },
       "sizes": [
         "XS",
@@ -1829,10 +1889,10 @@
       "compareAt": "16.00",
       "currencyCode": "CAD",
       "image": {
-        "url": "https://cdn.shopify.com/s/files/1/0688/1755/1382/products/ClayHoodie01.jpg?v=1739548707",
+        "url": "https://cdn.dummyjson.com/product-images/tops/blue-frock/3.webp",
         "altText": "Lace Trim Satin Cami Top",
-        "width": 4096,
-        "height": 4096
+        "width": 1000,
+        "height": 1000
       },
       "sizes": [
         "XS",
@@ -1963,10 +2023,10 @@
       "compareAt": null,
       "currencyCode": "CAD",
       "image": {
-        "url": "https://cdn.shopify.com/s/files/1/0688/1755/1382/products/GreenMenscrew01.jpg?v=1675454919",
+        "url": "https://cdn.dummyjson.com/product-images/tops/blue-frock/4.webp",
         "altText": "Puff Sleeve Button Front Blouse",
-        "width": 4096,
-        "height": 4096
+        "width": 1000,
+        "height": 1000
       },
       "sizes": [
         "XS",
@@ -2097,10 +2157,10 @@
       "compareAt": "29.00",
       "currencyCode": "CAD",
       "image": {
-        "url": "https://cdn.shopify.com/s/files/1/0688/1755/1382/products/GreenWomenscrew01.jpg?v=1675453375",
+        "url": "https://cdn.dummyjson.com/product-images/tops/girl-summer-dress/1.webp",
         "altText": "Cropped Zip Up Hoodie",
-        "width": 4096,
-        "height": 4096
+        "width": 1000,
+        "height": 1000
       },
       "sizes": [
         "XS",
@@ -2230,10 +2290,10 @@
       "compareAt": null,
       "currencyCode": "CAD",
       "image": {
-        "url": "https://cdn.shopify.com/s/files/1/0688/1755/1382/products/GreenHalfzip01.jpg?v=1675455104",
+        "url": "https://cdn.dummyjson.com/product-images/tops/girl-summer-dress/2.webp",
         "altText": "Mesh Long Sleeve Layering Top",
-        "width": 4096,
-        "height": 4096
+        "width": 1000,
+        "height": 1000
       },
       "sizes": [
         "XS",
@@ -2364,10 +2424,10 @@
       "compareAt": null,
       "currencyCode": "CAD",
       "image": {
-        "url": "https://cdn.shopify.com/s/files/1/0688/1755/1382/products/GreenWorkoutShirt.jpg?v=1675455464",
+        "url": "https://cdn.dummyjson.com/product-images/tops/girl-summer-dress/3.webp",
         "altText": "Cable Knit Cropped Cardigan",
-        "width": 4096,
-        "height": 4096
+        "width": 1000,
+        "height": 1000
       },
       "sizes": [
         "XS",
@@ -2498,10 +2558,10 @@
       "compareAt": "11.00",
       "currencyCode": "CAD",
       "image": {
-        "url": "https://cdn.shopify.com/s/files/1/0688/1755/1382/products/RedHoodie01.jpg?v=1739548873",
+        "url": "https://cdn.dummyjson.com/product-images/tops/girl-summer-dress/4.webp",
         "altText": "Basic Fitted Ribbed Tank",
-        "width": 4096,
-        "height": 4096
+        "width": 1000,
+        "height": 1000
       },
       "sizes": [
         "XS",
@@ -2632,10 +2692,10 @@
       "compareAt": null,
       "currencyCode": "CAD",
       "image": {
-        "url": "https://cdn.shopify.com/s/files/1/0688/1755/1382/products/ClayHoodie01.jpg?v=1739548707",
+        "url": "https://cdn.dummyjson.com/product-images/mens-shirts/blue-&-black-check-shirt/1.webp",
         "altText": "Men's Oversized Washed Cotton Tee",
-        "width": 4096,
-        "height": 4096
+        "width": 1000,
+        "height": 1000
       },
       "sizes": [
         "XS",
@@ -2766,10 +2826,10 @@
       "compareAt": "40.00",
       "currencyCode": "CAD",
       "image": {
-        "url": "https://cdn.shopify.com/s/files/1/0688/1755/1382/products/OceanHoodie01.jpg?v=1739548678",
+        "url": "https://cdn.dummyjson.com/product-images/mens-shirts/blue-&-black-check-shirt/2.webp",
         "altText": "Men's Colour Block Half Zip Sweatshirt",
-        "width": 4096,
-        "height": 4096
+        "width": 1000,
+        "height": 1000
       },
       "sizes": [
         "XS",
@@ -2899,10 +2959,10 @@
       "compareAt": null,
       "currencyCode": "CAD",
       "image": {
-        "url": "https://cdn.shopify.com/s/files/1/0688/1755/1382/products/PurpleHoodie01.jpg?v=1739548486",
+        "url": "https://cdn.dummyjson.com/product-images/mens-shirts/blue-&-black-check-shirt/3.webp",
         "altText": "Men's Relaxed Fit Flannel Overshirt",
-        "width": 4096,
-        "height": 4096
+        "width": 1000,
+        "height": 1000
       },
       "sizes": [
         "XS",
@@ -3034,10 +3094,10 @@
       "compareAt": "48.00",
       "currencyCode": "CAD",
       "image": {
-        "url": "https://cdn.shopify.com/s/files/1/0688/1755/1382/products/1_72ff506b-b5ff-43a0-bc65-9174c99d3d31.png?v=1675117122",
+        "url": "https://cdn.dummyjson.com/product-images/mens-shirts/blue-&-black-check-shirt/4.webp",
         "altText": "Men's Heavyweight Fleece Hoodie",
-        "width": 2048,
-        "height": 2048
+        "width": 1000,
+        "height": 1000
       },
       "sizes": [
         "XS",
@@ -3167,10 +3227,10 @@
       "compareAt": null,
       "currencyCode": "CAD",
       "image": {
-        "url": "https://cdn.shopify.com/s/files/1/0688/1755/1382/products/green.jpg?v=1675459832",
+        "url": "https://cdn.dummyjson.com/product-images/mens-shirts/gigabyte-aorus-men-tshirt/1.webp",
         "altText": "Men's Striped Knit Polo Shirt",
-        "width": 4096,
-        "height": 4096
+        "width": 1000,
+        "height": 1000
       },
       "sizes": [
         "XS",
@@ -3301,10 +3361,10 @@
       "compareAt": "22.00",
       "currencyCode": "CAD",
       "image": {
-        "url": "https://cdn.shopify.com/s/files/1/0688/1755/1382/products/GreenPuffer01.jpg?v=1675455329",
+        "url": "https://cdn.dummyjson.com/product-images/mens-shirts/gigabyte-aorus-men-tshirt/2.webp",
         "altText": "Men's Performance Training Tee",
-        "width": 4096,
-        "height": 4096
+        "width": 1000,
+        "height": 1000
       },
       "sizes": [
         "XS",
@@ -3569,7 +3629,7 @@
       "compareAt": null,
       "currencyCode": "CAD",
       "image": {
-        "url": "https://cdn.shopify.com/s/files/1/0688/1755/1382/products/GreenLeggings03.jpg?v=1675455256",
+        "url": "https://cdn.shopify.com/s/files/1/0688/1755/1382/products/GreenSweatpants02.jpg?v=1675455387",
         "altText": "Seamless Ribbed Biker Shorts",
         "width": 4096,
         "height": 4096
@@ -3704,7 +3764,7 @@
       "compareAt": "20.00",
       "currencyCode": "CAD",
       "image": {
-        "url": "https://cdn.shopify.com/s/files/1/0688/1755/1382/products/GreenShorts.jpg?v=1675462426",
+        "url": "https://cdn.shopify.com/s/files/1/0688/1755/1382/products/GreenSweatpants03.jpg?v=1675455387",
         "altText": "Pleated Mini Tennis Skirt",
         "width": 4096,
         "height": 4096
@@ -3837,7 +3897,7 @@
       "compareAt": null,
       "currencyCode": "CAD",
       "image": {
-        "url": "https://cdn.shopify.com/s/files/1/0688/1755/1382/products/GreenSweatpants01.jpg?v=1675455387",
+        "url": "https://cdn.shopify.com/s/files/1/0688/1755/1382/products/ClaySweatpants01.jpg?v=1675455387",
         "altText": "Distressed Straight Leg Mom Jeans",
         "width": 4096,
         "height": 4096
@@ -3971,7 +4031,7 @@
       "compareAt": "27.00",
       "currencyCode": "CAD",
       "image": {
-        "url": "https://cdn.shopify.com/s/files/1/0688/1755/1382/products/GreenLeggings03.jpg?v=1675455256",
+        "url": "https://cdn.shopify.com/s/files/1/0688/1755/1382/products/ClaySweatpants02.jpg?v=1675455387",
         "altText": "Satin Bias Cut Midi Skirt",
         "width": 4096,
         "height": 4096
@@ -4104,7 +4164,7 @@
       "compareAt": null,
       "currencyCode": "CAD",
       "image": {
-        "url": "https://cdn.shopify.com/s/files/1/0688/1755/1382/products/GreenShorts.jpg?v=1675462426",
+        "url": "https://cdn.shopify.com/s/files/1/0688/1755/1382/products/ClaySweatpants03.jpg?v=1675455387",
         "altText": "High Rise Faux Leather Leggings",
         "width": 4096,
         "height": 4096
@@ -4237,7 +4297,7 @@
       "compareAt": null,
       "currencyCode": "CAD",
       "image": {
-        "url": "https://cdn.shopify.com/s/files/1/0688/1755/1382/products/GreenSweatpants01.jpg?v=1675455387",
+        "url": "https://cdn.shopify.com/s/files/1/0688/1755/1382/products/OceanSweatpants01.jpg?v=1675445098",
         "altText": "Ruched Side Bodycon Mini Skirt",
         "width": 4096,
         "height": 4096
@@ -4372,7 +4432,7 @@
       "compareAt": "39.00",
       "currencyCode": "CAD",
       "image": {
-        "url": "https://cdn.shopify.com/s/files/1/0688/1755/1382/products/GreenLeggings03.jpg?v=1675455256",
+        "url": "https://cdn.shopify.com/s/files/1/0688/1755/1382/products/OceanSweatpants02.jpg?v=1675445099",
         "altText": "Men's Relaxed Fit Cargo Joggers",
         "width": 4096,
         "height": 4096
@@ -4505,7 +4565,7 @@
       "compareAt": null,
       "currencyCode": "CAD",
       "image": {
-        "url": "https://cdn.shopify.com/s/files/1/0688/1755/1382/products/GreenShorts.jpg?v=1675462426",
+        "url": "https://cdn.shopify.com/s/files/1/0688/1755/1382/products/OceanSweatpants03.jpg?v=1675445099",
         "altText": "Men's Straight Leg Denim Jeans",
         "width": 4096,
         "height": 4096
@@ -4638,7 +4698,7 @@
       "compareAt": null,
       "currencyCode": "CAD",
       "image": {
-        "url": "https://cdn.shopify.com/s/files/1/0688/1755/1382/products/GreenSweatpants01.jpg?v=1675455387",
+        "url": "https://cdn.shopify.com/s/files/1/0688/1755/1382/products/PurpleSweatpants01.jpg?v=1675445104",
         "altText": "Men's Drawstring Nylon Track Pants",
         "width": 4096,
         "height": 4096
@@ -4905,7 +4965,7 @@
       "compareAt": null,
       "currencyCode": "CAD",
       "image": {
-        "url": "https://cdn.shopify.com/s/files/1/0688/1755/1382/products/GreenShorts.jpg?v=1675462426",
+        "url": "https://cdn.shopify.com/s/files/1/0688/1755/1382/products/GreenLeggings02.jpg?v=1675455256",
         "altText": "Men's Fleece Sweatpants",
         "width": 4096,
         "height": 4096
@@ -5040,10 +5100,10 @@
       "compareAt": "52.00",
       "currencyCode": "CAD",
       "image": {
-        "url": "https://cdn.shopify.com/s/files/1/0688/1755/1382/products/GreenCanvasSneaker01.jpg?v=1675454881",
+        "url": "https://cdn.dummyjson.com/product-images/womens-shoes/black-&-brown-slipper/1.webp",
         "altText": "Chunky Platform Lace Up Sneakers",
-        "width": 4096,
-        "height": 4096
+        "width": 1000,
+        "height": 1000
       },
       "sizes": [
         "5",
@@ -5163,10 +5223,10 @@
       "compareAt": null,
       "currencyCode": "CAD",
       "image": {
-        "url": "https://cdn.shopify.com/s/files/1/0688/1755/1382/products/Differentwhiteleathersneakers01.jpg?v=1675447428",
+        "url": "https://cdn.dummyjson.com/product-images/womens-shoes/black-&-brown-slipper/2.webp",
         "altText": "Pointed Toe Stiletto Ankle Boots",
-        "width": 4096,
-        "height": 4096
+        "width": 1000,
+        "height": 1000
       },
       "sizes": [
         "5",
@@ -5287,10 +5347,10 @@
       "compareAt": "39.00",
       "currencyCode": "CAD",
       "image": {
-        "url": "https://cdn.shopify.com/s/files/1/0688/1755/1382/products/Greyleathersneakers.jpg?v=1675447462",
+        "url": "https://cdn.dummyjson.com/product-images/womens-shoes/black-&-brown-slipper/3.webp",
         "altText": "Strappy Block Heel Sandals",
-        "width": 4096,
-        "height": 4096
+        "width": 1000,
+        "height": 1000
       },
       "sizes": [
         "5",
@@ -5411,10 +5471,10 @@
       "compareAt": null,
       "currencyCode": "CAD",
       "image": {
-        "url": "https://cdn.shopify.com/s/files/1/0688/1755/1382/products/Greyrunners.jpg?v=1675447483",
+        "url": "https://cdn.dummyjson.com/product-images/womens-shoes/black-&-brown-slipper/4.webp",
         "altText": "Quilted Slip On Loafers",
-        "width": 4096,
-        "height": 4096
+        "width": 1000,
+        "height": 1000
       },
       "sizes": [
         "5",
@@ -5534,10 +5594,10 @@
       "compareAt": null,
       "currencyCode": "CAD",
       "image": {
-        "url": "https://cdn.shopify.com/s/files/1/0688/1755/1382/products/Whiteleathersneakers01.jpg?v=1675447604",
+        "url": "https://cdn.dummyjson.com/product-images/womens-shoes/calvin-klein-heel-shoes/1.webp",
         "altText": "Knee High Faux Leather Boots",
-        "width": 4096,
-        "height": 4096
+        "width": 1000,
+        "height": 1000
       },
       "sizes": [
         "5",
@@ -5658,10 +5718,10 @@
       "compareAt": "36.00",
       "currencyCode": "CAD",
       "image": {
-        "url": "https://cdn.shopify.com/s/files/1/0688/1755/1382/products/slides.jpg?v=1675447358",
+        "url": "https://cdn.dummyjson.com/product-images/womens-shoes/calvin-klein-heel-shoes/2.webp",
         "altText": "Espadrille Wedge Sandals",
-        "width": 4096,
-        "height": 4096
+        "width": 1000,
+        "height": 1000
       },
       "sizes": [
         "5",
@@ -5781,10 +5841,10 @@
       "compareAt": null,
       "currencyCode": "CAD",
       "image": {
-        "url": "https://cdn.shopify.com/s/files/1/0688/1755/1382/products/GreenCanvasSneaker01.jpg?v=1675454881",
+        "url": "https://cdn.dummyjson.com/product-images/womens-shoes/calvin-klein-heel-shoes/3.webp",
         "altText": "Ballet Flat Mary Janes",
-        "width": 4096,
-        "height": 4096
+        "width": 1000,
+        "height": 1000
       },
       "sizes": [
         "5",
@@ -5905,10 +5965,10 @@
       "compareAt": "22.00",
       "currencyCode": "CAD",
       "image": {
-        "url": "https://cdn.shopify.com/s/files/1/0688/1755/1382/products/Differentwhiteleathersneakers01.jpg?v=1675447428",
+        "url": "https://cdn.dummyjson.com/product-images/womens-shoes/calvin-klein-heel-shoes/4.webp",
         "altText": "Padded Slide Sandals",
-        "width": 4096,
-        "height": 4096
+        "width": 1000,
+        "height": 1000
       },
       "sizes": [
         "5",
@@ -6029,10 +6089,10 @@
       "compareAt": null,
       "currencyCode": "CAD",
       "image": {
-        "url": "https://cdn.shopify.com/s/files/1/0688/1755/1382/products/Greyleathersneakers.jpg?v=1675447462",
+        "url": "https://cdn.dummyjson.com/product-images/mens-shoes/nike-air-jordan-1-red-and-black/1.webp",
         "altText": "Men's Low Top Canvas Trainers",
-        "width": 4096,
-        "height": 4096
+        "width": 1000,
+        "height": 1000
       },
       "sizes": [
         "7",
@@ -6153,10 +6213,10 @@
       "compareAt": "55.00",
       "currencyCode": "CAD",
       "image": {
-        "url": "https://cdn.shopify.com/s/files/1/0688/1755/1382/products/Greyrunners.jpg?v=1675447483",
+        "url": "https://cdn.dummyjson.com/product-images/mens-shoes/nike-air-jordan-1-red-and-black/2.webp",
         "altText": "Men's Chunky Sole Running Shoes",
-        "width": 4096,
-        "height": 4096
+        "width": 1000,
+        "height": 1000
       },
       "sizes": [
         "7",
@@ -6276,10 +6336,10 @@
       "compareAt": null,
       "currencyCode": "CAD",
       "image": {
-        "url": "https://cdn.shopify.com/s/files/1/0688/1755/1382/products/Whiteleathersneakers01.jpg?v=1675447604",
+        "url": "https://cdn.dummyjson.com/product-images/mens-shoes/nike-air-jordan-1-red-and-black/3.webp",
         "altText": "Men's Suede Chelsea Boots",
-        "width": 4096,
-        "height": 4096
+        "width": 1000,
+        "height": 1000
       },
       "sizes": [
         "7",
@@ -6399,10 +6459,10 @@
       "compareAt": null,
       "currencyCode": "CAD",
       "image": {
-        "url": "https://cdn.shopify.com/s/files/1/0688/1755/1382/products/slides.jpg?v=1675447358",
+        "url": "https://cdn.dummyjson.com/product-images/mens-shoes/nike-air-jordan-1-red-and-black/4.webp",
         "altText": "Men's High Top Basketball Sneakers",
-        "width": 4096,
-        "height": 4096
+        "width": 1000,
+        "height": 1000
       },
       "sizes": [
         "7",
@@ -6523,7 +6583,12 @@
       "price": "12.99",
       "compareAt": "19.00",
       "currencyCode": "CAD",
-      "image": null,
+      "image": {
+        "url": "https://cdn.dummyjson.com/product-images/beauty/essence-mascara-lash-princess/1.webp",
+        "altText": "Matte Liquid Lipstick Set",
+        "width": 1000,
+        "height": 1000
+      },
       "sizes": [
         "One Size"
       ],
@@ -6561,7 +6626,12 @@
       "price": "8.99",
       "compareAt": null,
       "currencyCode": "CAD",
-      "image": null,
+      "image": {
+        "url": "https://cdn.dummyjson.com/product-images/beauty/eyeshadow-palette-with-mirror/1.webp",
+        "altText": "Dewy Glow Liquid Highlighter",
+        "width": 1000,
+        "height": 1000
+      },
       "sizes": [
         "One Size"
       ],
@@ -6601,7 +6671,12 @@
       "price": "15.50",
       "compareAt": "24.00",
       "currencyCode": "CAD",
-      "image": null,
+      "image": {
+        "url": "https://cdn.dummyjson.com/product-images/beauty/powder-canister/1.webp",
+        "altText": "12 Colour Eyeshadow Palette",
+        "width": 1000,
+        "height": 1000
+      },
       "sizes": [
         "One Size"
       ],
@@ -6639,7 +6714,12 @@
       "price": "7.99",
       "compareAt": null,
       "currencyCode": "CAD",
-      "image": null,
+      "image": {
+        "url": "https://cdn.dummyjson.com/product-images/beauty/red-lipstick/1.webp",
+        "altText": "Waterproof Volumising Mascara",
+        "width": 1000,
+        "height": 1000
+      },
       "sizes": [
         "One Size"
       ],
@@ -6677,7 +6757,12 @@
       "price": "18.99",
       "compareAt": null,
       "currencyCode": "CAD",
-      "image": null,
+      "image": {
+        "url": "https://cdn.dummyjson.com/product-images/beauty/red-nail-polish/1.webp",
+        "altText": "Hydrating Hyaluronic Face Serum",
+        "width": 1000,
+        "height": 1000
+      },
       "sizes": [
         "One Size"
       ],
@@ -6716,7 +6801,12 @@
       "price": "11.99",
       "compareAt": "18.00",
       "currencyCode": "CAD",
-      "image": null,
+      "image": {
+        "url": "https://cdn.dummyjson.com/product-images/skin-care/attitude-super-leaves-hand-soap/1.webp",
+        "altText": "Jade Roller and Gua Sha Set",
+        "width": 1000,
+        "height": 1000
+      },
       "sizes": [
         "One Size"
       ],
@@ -6754,7 +6844,12 @@
       "price": "6.50",
       "compareAt": null,
       "currencyCode": "CAD",
-      "image": null,
+      "image": {
+        "url": "https://cdn.dummyjson.com/product-images/skin-care/attitude-super-leaves-hand-soap/2.webp",
+        "altText": "Precision Liquid Eyeliner Pen",
+        "width": 1000,
+        "height": 1000
+      },
       "sizes": [
         "One Size"
       ],
@@ -6793,7 +6888,12 @@
       "price": "13.99",
       "compareAt": null,
       "currencyCode": "CAD",
-      "image": null,
+      "image": {
+        "url": "https://cdn.dummyjson.com/product-images/skin-care/attitude-super-leaves-hand-soap/3.webp",
+        "altText": "Tinted Lip Oil Trio",
+        "width": 1000,
+        "height": 1000
+      },
       "sizes": [
         "One Size"
       ],
@@ -6832,7 +6932,12 @@
       "price": "9.99",
       "compareAt": "15.00",
       "currencyCode": "CAD",
-      "image": null,
+      "image": {
+        "url": "https://cdn.dummyjson.com/product-images/skin-care/olay-ultra-moisture-shea-butter-body-wash/1.webp",
+        "altText": "Long Wear Setting Spray",
+        "width": 1000,
+        "height": 1000
+      },
       "sizes": [
         "One Size"
       ],
@@ -6870,7 +6975,12 @@
       "price": "10.50",
       "compareAt": null,
       "currencyCode": "CAD",
-      "image": null,
+      "image": {
+        "url": "https://cdn.dummyjson.com/product-images/skin-care/olay-ultra-moisture-shea-butter-body-wash/2.webp",
+        "altText": "Sheet Mask Variety Pack",
+        "width": 1000,
+        "height": 1000
+      },
       "sizes": [
         "One Size"
       ],
@@ -6910,7 +7020,12 @@
       "price": "9.99",
       "compareAt": "16.00",
       "currencyCode": "CAD",
-      "image": null,
+      "image": {
+        "url": "https://cdn.dummyjson.com/product-images/womens-jewellery/green-crystal-earring/1.webp",
+        "altText": "Gold Plated Layered Chain Necklace",
+        "width": 1000,
+        "height": 1000
+      },
       "sizes": [
         "One Size"
       ],
@@ -6942,7 +7057,12 @@
       "price": "7.50",
       "compareAt": null,
       "currencyCode": "CAD",
-      "image": null,
+      "image": {
+        "url": "https://cdn.dummyjson.com/product-images/womens-jewellery/green-crystal-earring/2.webp",
+        "altText": "Cubic Zirconia Huggie Hoop Earrings",
+        "width": 1000,
+        "height": 1000
+      },
       "sizes": [
         "One Size"
       ],
@@ -6974,7 +7094,12 @@
       "price": "11.99",
       "compareAt": null,
       "currencyCode": "CAD",
-      "image": null,
+      "image": {
+        "url": "https://cdn.dummyjson.com/product-images/womens-jewellery/green-crystal-earring/3.webp",
+        "altText": "Chunky Resin Statement Bangle",
+        "width": 1000,
+        "height": 1000
+      },
       "sizes": [
         "One Size"
       ],
@@ -7008,7 +7133,12 @@
       "price": "13.50",
       "compareAt": "20.00",
       "currencyCode": "CAD",
-      "image": null,
+      "image": {
+        "url": "https://cdn.dummyjson.com/product-images/womens-jewellery/green-oval-earring/1.webp",
+        "altText": "Dainty Initial Pendant Necklace",
+        "width": 1000,
+        "height": 1000
+      },
       "sizes": [
         "One Size"
       ],
@@ -7040,7 +7170,12 @@
       "price": "8.99",
       "compareAt": null,
       "currencyCode": "CAD",
-      "image": null,
+      "image": {
+        "url": "https://cdn.dummyjson.com/product-images/womens-jewellery/green-oval-earring/2.webp",
+        "altText": "Stackable Textured Ring Set",
+        "width": 1000,
+        "height": 1000
+      },
       "sizes": [
         "One Size"
       ],
@@ -7072,7 +7207,12 @@
       "price": "16.99",
       "compareAt": null,
       "currencyCode": "CAD",
-      "image": null,
+      "image": {
+        "url": "https://cdn.dummyjson.com/product-images/womens-jewellery/green-oval-earring/3.webp",
+        "altText": "Freshwater Pearl Drop Earrings",
+        "width": 1000,
+        "height": 1000
+      },
       "sizes": [
         "One Size"
       ],
@@ -7105,7 +7245,12 @@
       "price": "6.99",
       "compareAt": "11.00",
       "currencyCode": "CAD",
-      "image": null,
+      "image": {
+        "url": "https://cdn.dummyjson.com/product-images/womens-jewellery/tropical-earring/1.webp",
+        "altText": "Butterfly Charm Anklet",
+        "width": 1000,
+        "height": 1000
+      },
       "sizes": [
         "One Size"
       ],
@@ -7137,7 +7282,12 @@
       "price": "12.50",
       "compareAt": null,
       "currencyCode": "CAD",
-      "image": null,
+      "image": {
+        "url": "https://cdn.dummyjson.com/product-images/womens-jewellery/tropical-earring/2.webp",
+        "altText": "Herringbone Snake Chain Bracelet",
+        "width": 1000,
+        "height": 1000
+      },
       "sizes": [
         "One Size"
       ],
@@ -7170,7 +7320,12 @@
       "price": "9.50",
       "compareAt": null,
       "currencyCode": "CAD",
-      "image": null,
+      "image": {
+        "url": "https://cdn.dummyjson.com/product-images/womens-jewellery/tropical-earring/3.webp",
+        "altText": "Rhinestone Ear Cuff Set",
+        "width": 1000,
+        "height": 1000
+      },
       "sizes": [
         "One Size"
       ],
@@ -7203,7 +7358,12 @@
       "price": "10.99",
       "compareAt": "17.00",
       "currencyCode": "CAD",
-      "image": null,
+      "image": {
+        "url": "https://cdn.dummyjson.com/product-images/womens-watches/iwc-ingenieur-automatic-steel/1.webp",
+        "altText": "Vintage Style Signet Ring",
+        "width": 1000,
+        "height": 1000
+      },
       "sizes": [
         "One Size"
       ],
@@ -7237,7 +7397,12 @@
       "price": "24.99",
       "compareAt": "38.00",
       "currencyCode": "CAD",
-      "image": null,
+      "image": {
+        "url": "https://cdn.dummyjson.com/product-images/womens-bags/blue-women's-handbag/1.webp",
+        "altText": "Quilted Chain Strap Shoulder Bag",
+        "width": 1000,
+        "height": 1000
+      },
       "sizes": [
         "One Size"
       ],
@@ -7275,7 +7440,12 @@
       "price": "21.50",
       "compareAt": null,
       "currencyCode": "CAD",
-      "image": null,
+      "image": {
+        "url": "https://cdn.dummyjson.com/product-images/womens-bags/blue-women's-handbag/2.webp",
+        "altText": "Mini Croc Embossed Top Handle Bag",
+        "width": 1000,
+        "height": 1000
+      },
       "sizes": [
         "One Size"
       ],
@@ -7313,7 +7483,12 @@
       "price": "16.99",
       "compareAt": null,
       "currencyCode": "CAD",
-      "image": null,
+      "image": {
+        "url": "https://cdn.dummyjson.com/product-images/womens-bags/blue-women's-handbag/3.webp",
+        "altText": "Canvas Tote with Inner Pouch",
+        "width": 1000,
+        "height": 1000
+      },
       "sizes": [
         "One Size"
       ],
@@ -7352,7 +7527,12 @@
       "price": "18.99",
       "compareAt": "28.00",
       "currencyCode": "CAD",
-      "image": null,
+      "image": {
+        "url": "https://cdn.dummyjson.com/product-images/womens-bags/heshe-women's-leather-bag/1.webp",
+        "altText": "Nylon Crossbody Sling Bag",
+        "width": 1000,
+        "height": 1000
+      },
       "sizes": [
         "One Size"
       ],
@@ -7391,7 +7571,12 @@
       "price": "26.50",
       "compareAt": null,
       "currencyCode": "CAD",
-      "image": null,
+      "image": {
+        "url": "https://cdn.dummyjson.com/product-images/womens-bags/heshe-women's-leather-bag/2.webp",
+        "altText": "Faux Leather Bucket Bag",
+        "width": 1000,
+        "height": 1000
+      },
       "sizes": [
         "One Size"
       ],
@@ -7429,7 +7614,12 @@
       "price": "19.99",
       "compareAt": null,
       "currencyCode": "CAD",
-      "image": null,
+      "image": {
+        "url": "https://cdn.dummyjson.com/product-images/womens-bags/heshe-women's-leather-bag/3.webp",
+        "altText": "Rhinestone Evening Clutch",
+        "width": 1000,
+        "height": 1000
+      },
       "sizes": [
         "One Size"
       ],
@@ -7469,10 +7659,10 @@
       "compareAt": "34.00",
       "currencyCode": "CAD",
       "image": {
-        "url": "https://cdn.shopify.com/s/files/1/0688/1755/1382/products/GreenFrontpack.jpg?v=1675455064",
+        "url": "https://cdn.dummyjson.com/product-images/womens-bags/prada-women-bag/1.webp",
         "altText": "Corduroy Drawstring Backpack",
-        "width": 4096,
-        "height": 4096
+        "width": 1000,
+        "height": 1000
       },
       "sizes": [
         "One Size"
@@ -7511,7 +7701,12 @@
       "price": "17.50",
       "compareAt": null,
       "currencyCode": "CAD",
-      "image": null,
+      "image": {
+        "url": "https://cdn.dummyjson.com/product-images/womens-bags/prada-women-bag/2.webp",
+        "altText": "Woven Straw Beach Tote",
+        "width": 1000,
+        "height": 1000
+      },
       "sizes": [
         "One Size"
       ],
@@ -7550,7 +7745,12 @@
       "price": "14.99",
       "compareAt": "22.00",
       "currencyCode": "CAD",
-      "image": null,
+      "image": {
+        "url": "https://cdn.dummyjson.com/product-images/womens-bags/prada-women-bag/3.webp",
+        "altText": "Belt Bag with Adjustable Strap",
+        "width": 1000,
+        "height": 1000
+      },
       "sizes": [
         "One Size"
       ],
@@ -7588,7 +7788,12 @@
       "price": "32.99",
       "compareAt": null,
       "currencyCode": "CAD",
-      "image": null,
+      "image": {
+        "url": "https://cdn.dummyjson.com/product-images/womens-bags/white-faux-leather-backpack/1.webp",
+        "altText": "Structured Laptop Work Satchel",
+        "width": 1000,
+        "height": 1000
+      },
       "sizes": [
         "One Size"
       ],
@@ -7627,7 +7832,12 @@
       "price": "11.99",
       "compareAt": "18.00",
       "currencyCode": "CAD",
-      "image": null,
+      "image": {
+        "url": "https://cdn.dummyjson.com/product-images/home-decoration/decoration-swing/1.webp",
+        "altText": "Boucle Textured Cushion Cover",
+        "width": 1000,
+        "height": 1000
+      },
       "sizes": [
         "One Size"
       ],
@@ -7663,7 +7873,12 @@
       "price": "19.99",
       "compareAt": null,
       "currencyCode": "CAD",
-      "image": null,
+      "image": {
+        "url": "https://cdn.dummyjson.com/product-images/home-decoration/decoration-swing/2.webp",
+        "altText": "Ribbed Ceramic Vase Set",
+        "width": 1000,
+        "height": 1000
+      },
       "sizes": [
         "One Size"
       ],
@@ -7701,7 +7916,12 @@
       "price": "14.50",
       "compareAt": "22.00",
       "currencyCode": "CAD",
-      "image": null,
+      "image": {
+        "url": "https://cdn.dummyjson.com/product-images/home-decoration/decoration-swing/3.webp",
+        "altText": "LED Strip Ambient Light",
+        "width": 1000,
+        "height": 1000
+      },
       "sizes": [
         "One Size"
       ],
@@ -7739,7 +7959,12 @@
       "price": "27.99",
       "compareAt": null,
       "currencyCode": "CAD",
-      "image": null,
+      "image": {
+        "url": "https://cdn.dummyjson.com/product-images/home-decoration/family-tree-photo-frame/1.webp",
+        "altText": "Waffle Weave Cotton Throw Blanket",
+        "width": 1000,
+        "height": 1000
+      },
       "sizes": [
         "One Size"
       ],
@@ -7775,7 +8000,12 @@
       "price": "16.99",
       "compareAt": null,
       "currencyCode": "CAD",
-      "image": null,
+      "image": {
+        "url": "https://cdn.dummyjson.com/product-images/home-decoration/house-showpiece-plant/1.webp",
+        "altText": "Rattan Woven Storage Basket",
+        "width": 1000,
+        "height": 1000
+      },
       "sizes": [
         "One Size"
       ],
@@ -7813,7 +8043,12 @@
       "price": "12.50",
       "compareAt": "19.00",
       "currencyCode": "CAD",
-      "image": null,
+      "image": {
+        "url": "https://cdn.dummyjson.com/product-images/home-decoration/house-showpiece-plant/2.webp",
+        "altText": "Minimalist Desk Organiser Tray",
+        "width": 1000,
+        "height": 1000
+      },
       "sizes": [
         "One Size"
       ],
@@ -7851,7 +8086,12 @@
       "price": "21.99",
       "compareAt": null,
       "currencyCode": "CAD",
-      "image": null,
+      "image": {
+        "url": "https://cdn.dummyjson.com/product-images/home-decoration/house-showpiece-plant/3.webp",
+        "altText": "Scented Soy Candle Trio",
+        "width": 1000,
+        "height": 1000
+      },
       "sizes": [
         "One Size"
       ],
@@ -7887,7 +8127,12 @@
       "price": "24.99",
       "compareAt": null,
       "currencyCode": "CAD",
-      "image": null,
+      "image": {
+        "url": "https://cdn.dummyjson.com/product-images/home-decoration/plant-pot/1.webp",
+        "altText": "Velvet Blackout Curtain Panel",
+        "width": 1000,
+        "height": 1000
+      },
       "sizes": [
         "One Size"
       ],
@@ -7925,7 +8170,12 @@
       "price": "9.99",
       "compareAt": "15.00",
       "currencyCode": "CAD",
-      "image": null,
+      "image": {
+        "url": "https://cdn.dummyjson.com/product-images/home-decoration/plant-pot/2.webp",
+        "altText": "Marble Effect Coaster Set",
+        "width": 1000,
+        "height": 1000
+      },
       "sizes": [
         "One Size"
       ],
@@ -7961,7 +8211,12 @@
       "price": "39.99",
       "compareAt": null,
       "currencyCode": "CAD",
-      "image": null,
+      "image": {
+        "url": "https://cdn.dummyjson.com/product-images/home-decoration/plant-pot/3.webp",
+        "altText": "Fluffy Faux Fur Area Rug",
+        "width": 1000,
+        "height": 1000
+      },
       "sizes": [
         "One Size"
       ],

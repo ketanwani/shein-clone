@@ -1,7 +1,7 @@
 /**
  * Generates the storefront catalogue.
  *
- *   node scripts/build-catalogue.mjs [--source <mock.shop dump>] [--out <path>]
+ *   node scripts/build-catalogue.mjs [--mock <dump>] [--dummy <dump>] [--out <path>]
  *
  * mock.shop serves 29 products with no productType and no usable tags, so every one of
  * the twelve category pages rendered the same 29 items and category filtering had never
@@ -20,10 +20,20 @@
  * Backing variants are therefore free to repeat; the attribute is what makes a line
  * unambiguous.
  *
- * Photography is the one thing that cannot be invented. mock.shop's 29 images are all
- * apparel, so Tops, Bottoms, Shoes and one backpack get real photographs and the
- * categories with no plausible match get `image: null`, which the app renders as a
- * generated card rather than a garment standing in for a lipstick.
+ * ─── Where the photographs come from ────────────────────────────────────────────────
+ *
+ * Two sources, because neither covers the catalogue alone.
+ *
+ * dummyjson.com is a public API published for exactly this purpose and its categories
+ * line up with ours almost exactly — womens-dresses, womens-jewellery, beauty,
+ * home-decoration and the rest — with three or four cutout shots per product. It carries
+ * everything except trousers and skirts.
+ *
+ * mock.shop fills that hole: Sweatpants, Leggings and Shorts between them have 25
+ * images, which is more than the twelve Bottoms need.
+ *
+ * Every product therefore gets its own photograph and no image is used twice. Both are
+ * hotlinked, as the Shopify CDN images already were — nothing is copied into the repo.
  */
 
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs"
@@ -34,11 +44,14 @@ const arg = (name, fallback) => {
   const i = args.indexOf(name)
   return i === -1 ? fallback : args[i + 1]
 }
-const SOURCE = arg("--source", null)
+const MOCK_FILE = arg("--mock", null)
+const DUMMY_FILE = arg("--dummy", null)
 const OUT = arg("--out", "lib/catalogue/data.json")
 
 const MOCK_ENDPOINT = "https://mock.shop/api"
+const DUMMY_ENDPOINT = "https://dummyjson.com/products?limit=200&select=id,title,category,images"
 
+/** Both the purchasable variants and every image, which Bottoms draws on. */
 const SOURCE_QUERY = /* GraphQL */ `
   {
     products(first: 100) {
@@ -46,6 +59,7 @@ const SOURCE_QUERY = /* GraphQL */ `
         node {
           title
           featuredImage { url altText width height }
+          images(first: 10) { edges { node { url altText width height } } }
           variants(first: 100) { edges { node { id availableForSale } } }
         }
       }
@@ -53,14 +67,21 @@ const SOURCE_QUERY = /* GraphQL */ `
   }
 `
 
-async function loadSource() {
-  if (SOURCE) return JSON.parse(readFileSync(SOURCE, "utf8"))
+async function loadMock() {
+  if (MOCK_FILE) return JSON.parse(readFileSync(MOCK_FILE, "utf8"))
   const res = await fetch(MOCK_ENDPOINT, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ query: SOURCE_QUERY }),
   })
   if (!res.ok) throw new Error(`mock.shop returned ${res.status}`)
+  return res.json()
+}
+
+async function loadDummy() {
+  if (DUMMY_FILE) return JSON.parse(readFileSync(DUMMY_FILE, "utf8"))
+  const res = await fetch(DUMMY_ENDPOINT)
+  if (!res.ok) throw new Error(`dummyjson returned ${res.status}`)
   return res.json()
 }
 
@@ -71,23 +92,23 @@ const SHOE_W = ["5", "6", "7", "8", "9", "10"]
 const SHOE_M = ["7", "8", "9", "10", "11", "12"]
 const ONE = ["One Size"]
 
-// ─── Which mock.shop photograph stands in for which category ─────────────────────────
-
-const PHOTOS = {
-  Tops: [
-    "Women's T-shirt", "Men's T-shirt", "Hoodie", "Men's Crewneck", "Women's Crewneck",
-    "Half Zip", "Workout Shirt", "Soft Cotton Hoodie in Jam", "Soft Cotton Hoodie in Clay",
-    "Soft Cotton Hoodie in Ocean", "Soft Cotton Hoodie in Violet", "Soft Cotton Hoodie in Green",
-    "Light Puffer", "Puffer", "Puffer Jacket",
-  ],
-  Bottoms: ["Sweatpants", "Leggings", "Shorts"],
-  Shoes: [
-    "Canvas Sneakers", "White Leather Sneakers", "Gray Leather Sneakers",
-    "Gray Runners", "High Top Sneakers", "Slides",
-  ],
-  // Deliberately empty: no dress, cosmetic, jewellery or homeware photography exists
-  // upstream, and an apparel shot in its place reads as a bug rather than a placeholder.
-  Dresses: [], Beauty: [], Jewelry: [], Bags: [], Home: [],
+/**
+ * Where each of our categories draws its photography from.
+ *
+ * `dummy` names dummyjson categories; `mock` names mock.shop product titles whose image
+ * lists are used. Tops and Shoes split by gender so a men's shirt does not get a
+ * women's photograph — `w` and `m` are consulted per item.
+ */
+const PHOTO_SOURCES = {
+  Dresses: { dummy: ["womens-dresses"] },
+  Tops: { dummyW: ["tops"], dummyM: ["mens-shirts"] },
+  Shoes: { dummyW: ["womens-shoes"], dummyM: ["mens-shoes"] },
+  Bags: { dummy: ["womens-bags"] },
+  Jewelry: { dummy: ["womens-jewellery", "womens-watches"] },
+  Beauty: { dummy: ["beauty", "skin-care", "fragrances"] },
+  Home: { dummy: ["home-decoration", "furniture", "kitchen-accessories"] },
+  // dummyjson has no trousers or skirts, so Bottoms comes from the one place that does.
+  Bottoms: { mock: ["Sweatpants", "Leggings", "Shorts"] },
 }
 
 const PALETTES = {
@@ -245,12 +266,70 @@ const money = (n) => n.toFixed(2)
 
 // ─── Build ───────────────────────────────────────────────────────────────────────────
 
-const source = await loadSource()
+const [source, dummy] = await Promise.all([loadMock(), loadDummy()])
 const mockProducts = source.data.products.edges.map((e) => e.node)
 
-const imageByTitle = new Map(
-  mockProducts.filter((p) => p.featuredImage).map((p) => [p.title, p.featuredImage]),
+/** mock.shop product title -> all of its images, for the Bottoms pool. */
+const mockImagesByTitle = new Map(
+  mockProducts.map((p) => [p.title, p.images.edges.map((e) => e.node)]),
 )
+
+/** dummyjson category -> its images, flattened across the products in it. */
+const dummyImagesByCategory = new Map()
+for (const p of dummy.products ?? []) {
+  const list = dummyImagesByCategory.get(p.category) ?? []
+  for (const url of p.images ?? []) list.push({ url, altText: p.title, width: 1000, height: 1000 })
+  dummyImagesByCategory.set(p.category, list)
+}
+
+/**
+ * Hands out photographs without repeating one.
+ *
+ * Running a pool dry is a hard failure rather than a silent wrap-around: a duplicated
+ * photograph across two listings is the exact thing this change exists to remove, and it
+ * is far easier to notice here than on a category page.
+ */
+function makePool(label, images) {
+  let cursor = 0
+  return () => {
+    if (cursor >= images.length) {
+      throw new Error(`ran out of photographs for ${label} after ${images.length}`)
+    }
+    return images[cursor++]
+  }
+}
+
+function poolsFor(productType) {
+  const spec = PHOTO_SOURCES[productType]
+  if (!spec) throw new Error(`no photo source configured for ${productType}`)
+
+  const fromDummy = (categories) =>
+    categories.flatMap((c) => {
+      const found = dummyImagesByCategory.get(c)
+      if (!found?.length) throw new Error(`dummyjson category "${c}" has no images`)
+      return found
+    })
+
+  const fromMock = (titles) =>
+    titles.flatMap((t) => {
+      const found = mockImagesByTitle.get(t)
+      if (!found?.length) throw new Error(`no mock.shop product titled "${t}"`)
+      return found
+    })
+
+  if (spec.mock) {
+    const shared = makePool(productType, fromMock(spec.mock))
+    return { women: shared, men: shared }
+  }
+  if (spec.dummy) {
+    const shared = makePool(productType, fromDummy(spec.dummy))
+    return { women: shared, men: shared }
+  }
+  return {
+    women: makePool(`${productType} (women)`, fromDummy(spec.dummyW)),
+    men: makePool(`${productType} (men)`, fromDummy(spec.dummyM)),
+  }
+}
 
 /**
  * Every in-stock mock.shop variant, in a stable order. Our variants draw from this pool
@@ -271,8 +350,7 @@ const products = []
 const seenHandles = new Set()
 
 for (const [productType, group] of Object.entries(SPEC)) {
-  const pool = PHOTOS[productType] ?? []
-  let photoCursor = 0
+  const pools = poolsFor(productType)
 
   group.items.forEach((item) => {
     const handle = slug(item.t)
@@ -283,9 +361,7 @@ for (const [productType, group] of Object.entries(SPEC)) {
     const sizes = group.sizes ?? (item.m ? SHOE_M : SHOE_W)
     const colors = PALETTES[productType]
 
-    const photoTitle = item.img ?? (pool.length ? pool[photoCursor++ % pool.length] : null)
-    const photo = photoTitle ? imageByTitle.get(photoTitle) : null
-    if (photoTitle && !photo) throw new Error(`no upstream image titled "${photoTitle}"`)
+    const photo = (item.m ? pools.men : pools.women)()
 
     const tags = []
     if (item.w) tags.push("Women")
@@ -314,9 +390,8 @@ for (const [productType, group] of Object.entries(SPEC)) {
       price: money(item.p),
       compareAt: item.was ? money(item.was) : null,
       currencyCode: "CAD",
-      image: photo
-        ? { url: photo.url, altText: photo.altText ?? item.t, width: photo.width, height: photo.height }
-        : null,
+      // altText describes our listing, not the upstream photograph it was taken from.
+      image: { url: photo.url, altText: item.t, width: photo.width, height: photo.height },
       sizes,
       colors,
       variants,
@@ -326,7 +401,7 @@ for (const [productType, group] of Object.entries(SPEC)) {
 
 const out = {
   // Recorded so a reader can tell where the photography came from without digging.
-  source: "mock.shop",
+  source: "mock.shop (bottoms, backing variants) + dummyjson.com (photography)",
   currencyCode: "CAD",
   products,
 }

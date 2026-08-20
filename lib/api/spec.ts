@@ -332,17 +332,17 @@ export const PRODUCT_EXAMPLE = {
   tags: ["Women", "New In", "Sale"],
   availableForSale: true,
   featuredImage: {
-    url: "https://shein-clone-ruby.vercel.app/api/placeholder/ruched-mesh-bodycon-midi-dress",
+    url: "https://cdn.dummyjson.com/product-images/womens-dresses/black-women%27s-gown/1.webp",
     altText: "Ruched Mesh Bodycon Midi Dress",
-    width: 900,
-    height: 1200,
+    width: 1000,
+    height: 1000,
   },
   images: [
     {
-      url: "https://shein-clone-ruby.vercel.app/api/placeholder/ruched-mesh-bodycon-midi-dress",
+      url: "https://cdn.dummyjson.com/product-images/womens-dresses/black-women%27s-gown/1.webp",
       altText: "Ruched Mesh Bodycon Midi Dress",
-      width: 900,
-      height: 1200,
+      width: 1000,
+      height: 1000,
     },
   ],
   options: [
@@ -425,10 +425,10 @@ export const CART_EXAMPLE = {
           { name: "Color", value: "Black" },
         ],
         image: {
-          url: "https://shein-clone-ruby.vercel.app/api/placeholder/ruched-mesh-bodycon-midi-dress",
+          url: "https://cdn.dummyjson.com/product-images/womens-dresses/black-women%27s-gown/1.webp",
           altText: "Ruched Mesh Bodycon Midi Dress",
-          width: 900,
-          height: 1200,
+          width: 1000,
+          height: 1000,
         },
         product: { handle: "ruched-mesh-bodycon-midi-dress", title: "Ruched Mesh Bodycon Midi Dress" },
       },

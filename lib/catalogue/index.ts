@@ -48,22 +48,15 @@ export const variantGid = (handle: string, size: string, color: string) =>
 export const isLocalVariantId = (id: string) => id.startsWith("gid://glowa/ProductVariant/")
 
 /**
- * Products with no upstream photograph render a generated card instead.
- *
- * mock.shop's imagery is entirely apparel, so there is nothing to stand in for a
- * lipstick or a vase. A card that names the product is honest; a hoodie photograph on a
- * homeware listing just looks broken.
+ * Every product has its own photograph, and the generator fails rather than emit one
+ * without. There is deliberately no placeholder path: a fallback here is what lets a
+ * listing quietly ship with no picture, which is the failure this is meant to prevent.
  */
-const placeholderImage = (product: RawProduct): ProductImage => ({
-  url: `/api/placeholder/${product.handle}`,
-  altText: product.title,
-  width: 900,
-  height: 1200,
-})
-
 function toImage(product: RawProduct): ProductImage {
-  const base = product.image ?? placeholderImage(product)
-  return { ...base, url: absoluteImageUrl(base.url) }
+  if (!product.image) {
+    throw new Error(`catalogue: ${product.handle} has no image — regenerate data.json`)
+  }
+  return { ...product.image, url: absoluteImageUrl(product.image.url) }
 }
 
 function toVariants(product: RawProduct): ProductVariant[] {
