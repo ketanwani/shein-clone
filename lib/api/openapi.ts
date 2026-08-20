@@ -22,20 +22,24 @@ function operationId(endpoint: ApiEndpoint) {
   return endpoint.method.toLowerCase() + segments.join("")
 }
 
-// Both credentials are required together, so they share one requirement object (AND).
-// There is no second entry, because there is no alternative — that is the point.
-const SHOPPER_REQUIREMENT = { agentKey: [], bearerAuth: [] }
+// X-Agent-Key is required in every case; what varies is how the shopper is named.
+// Separate objects are alternatives (OR), keys within one are required together (AND).
+const BY_TOKEN = { agentKey: [], bearerAuth: [] }
+const BY_EMAIL = { agentKey: [], shopperEmail: [] }
+const SHOPPER_REQUIREMENT = [BY_TOKEN, BY_EMAIL]
 
 function security(endpoint: ApiEndpoint) {
   // Better Auth owns these and does not read X-Agent-Key.
   if (endpoint.auth === "bearer") return [{ bearerAuth: [] }]
   // Sign-in: the caller proves itself, and there is no shopper to name yet.
   if (endpoint.auth === "agentKey") return [{ agentKey: [] }]
-  // The shared secret AND the shopper's own token. Not alternatives.
-  if (endpoint.auth === "shopper") return [SHOPPER_REQUIREMENT]
+  // A real session, so X-Shopper-Email cannot stand in for it.
+  if (endpoint.auth === "agentKeyBearer") return [BY_TOKEN]
+  // The shared secret, plus the shopper named by a token or by an email header.
+  if (endpoint.auth === "shopper") return SHOPPER_REQUIREMENT
   // Same for an agent, plus the two browser forms. An agent has no anonymous option:
   // {} and cartCookie are reachable only without X-Agent-Key.
-  if (endpoint.auth === "cart") return [SHOPPER_REQUIREMENT, { cartCookie: [] }, {}]
+  if (endpoint.auth === "cart") return [...SHOPPER_REQUIREMENT, { cartCookie: [] }, {}]
   return []
 }
 
@@ -163,7 +167,7 @@ export function buildOpenApiDocument(baseUrl = DEFAULT_BASE_URL) {
       title: API_TITLE,
       version: API_VERSION,
       description:
-        "REST surface of the GLOWA storefront, intended for AI agent integration.\n\n**Two credentials, one each for the two questions.** `X-Agent-Key` proves the *caller* is the GLOWA agent. A bearer token, which the *shopper* obtains themselves through the email-OTP flow, proves who the call is for. They are checked independently: a valid token with no agent key is rejected, and so is an agent key with no token.\n\n**Catalogue reads are public** — products, search, collections and recommendations need no credentials at all.\n\n**Everything else needs both.** The bag, the customer profile and address book, the wishlist and orders are all keyed by the signed-in account, so **the shopper must be signed in before any cart, wishlist, customer or order call — including the first add-to-bag.** Sign them in with POST /api/auth/email-otp/send-verification-otp followed by POST /api/auth/sign-in/email-otp, which returns the token at `data.token` and its expiry at both `data.expiresAt` (ISO 8601) and `data.expiresAtUnix` (epoch seconds). A 401 on any of these routes is routine and recoverable: re-run that flow and retry.\n\n`X-Customer-Ref` has been removed. It was the caller asserting which shopper it was acting for, which meant anything it unlocked was reachable by anyone holding the shared secret. Requests that still send the header are ignored rather than rejected, so a stale integration degrades instead of breaking.\n\nEvery call is independent and no cookie jar is required. Browser clients keep using a session cookie, and an anonymous browser bag still rides on a `cartId` cookie until its shopper signs in. POST /api/orders accepts an Idempotency-Key so retries cannot buy twice. Payment is simulated — only the test card 4242424242424242 is accepted.",
+        "REST surface of the GLOWA storefront, intended for AI agent integration.\n\n**Two credentials, one each for the two questions.** `X-Agent-Key` proves the *caller* is the GLOWA agent. Naming the *shopper* is separate, and there are two ways to do it: `Authorization: Bearer <token>` from the email-OTP flow, or `X-Shopper-Email` carrying the shopper's address. If both arrive the token wins. The agent key never substitutes for naming a shopper, and naming one never substitutes for the agent key.\n\n**Catalogue reads are public** — products, search, collections and recommendations need no credentials at all.\n\n**Everything else needs both.** The bag, the customer profile and address book, the wishlist and orders are all keyed by the resulting account, so every one of those calls — including the first add-to-bag — must name a shopper. A call that names nobody is a 400 listing both options; a call with a missing or wrong agent key is a 401.\n\nAn address seen for the first time provisions that shopper. Addresses are trimmed and lowercased, so `Ada@Example.com` and `ada@example.com` are one person.\n\n⚠️ **SECURITY: `X-Shopper-Email` is asserted by the caller and proves nothing.** Anyone holding `X-Agent-Key` can read or modify ANY shopper's bag, wishlist, profile and order history simply by naming their email address. This is the same weakness `X-Customer-Ref` was removed for, knowingly reintroduced. The email-OTP bearer token is the correct mechanism and remains fully implemented — the only reason this mode exists is that the Instagram agent runtime cannot yet carry a token between calls. It is off unless the server sets `ALLOW_SHOPPER_EMAIL_HEADER`, and it is acceptable only on this demo deployment, which holds mock products, simulated payments and no real shopper data. Do not enable it anywhere that does.\n\nEvery call is independent and no cookie jar is required. Browser clients keep using a session cookie, and an anonymous browser bag still rides on a `cartId` cookie until its shopper signs in. POST /api/orders accepts an Idempotency-Key so retries cannot buy twice. Payment is simulated — only the test card 4242424242424242 is accepted.",
 
     },
     servers: [{ url: baseUrl, description: "Local development" }],
@@ -177,20 +181,27 @@ export function buildOpenApiDocument(baseUrl = DEFAULT_BASE_URL) {
           in: "header",
           name: "X-Agent-Key",
           description:
-            "Shared secret issued by GLOWA to the agent platform, proving the caller is the GLOWA agent. Static across conversations and compared in constant time. It proves the caller and nothing else — on any shopper-scoped route it must be paired with that shopper's bearer token, and neither credential substitutes for the other. The server accepts any key in its AGENT_API_KEY list, so keys can be rotated without downtime. Outside production the well-known key `dev-agent-key` also works; in production there is no fallback and agent routes return 401 until AGENT_API_KEY is set.",
+            "Shared secret issued by GLOWA to the agent platform, proving the caller is the GLOWA agent. Static across conversations and compared in constant time. It proves the caller and nothing else — on any shopper-scoped route it must be paired with something that names the shopper, either bearerAuth or shopperEmail, and neither substitutes for the other. The server accepts any key in its AGENT_API_KEY list, so keys can be rotated without downtime. Outside production the well-known key `dev-agent-key` also works; in production there is no fallback and agent routes return 401 until AGENT_API_KEY is set.",
+        },
+        shopperEmail: {
+          type: "apiKey",
+          in: "header",
+          name: "X-Shopper-Email",
+          description:
+            "The shopper's email address, naming who a call is for. Trimmed and lowercased, so Ada@Example.com and ada@example.com are one shopper; an address seen for the first time provisions that shopper. Used only when no bearer token is sent — the token always wins.\n\nWARNING: this is asserted by the caller and proves nothing. Anyone holding agentKey can read or modify any shopper's bag, wishlist, profile and order history by naming their address, which is the same weakness X-Customer-Ref was removed for. It exists only because the agent runtime cannot currently carry a bearer token between calls; the email-OTP token is the correct mechanism and is still implemented. Off unless the server sets ALLOW_SHOPPER_EMAIL_HEADER, and acceptable only on a demo deployment with mock products and simulated payments.",
         },
         bearerAuth: {
           type: "http",
           scheme: "bearer",
           description:
-            "Session token, sent as `Authorization: Bearer <token>`. Valid for 7 days, and no refresh token is issued — re-run sign-in when it expires. An agent gets one for a named shopper from POST /api/auth/sign-in/email-otp, where it is at `data.token` with its expiry given twice: `data.expiresAt` as an ISO 8601 timestamp and `data.expiresAtUnix` as whole seconds since the epoch. The website's own password login at POST /api/auth/sign-in/email also returns one. This is the only way to identify a shopper, and on every shopper-scoped route it is required *in addition to* agentKey.",
+            "Session token, sent as `Authorization: Bearer <token>`. Valid for 7 days, and no refresh token is issued — re-run sign-in when it expires. An agent gets one for a named shopper from POST /api/auth/sign-in/email-otp, where it is at `data.token` with its expiry given twice: `data.expiresAt` as an ISO 8601 timestamp and `data.expiresAtUnix` as whole seconds since the epoch. The website's own password login at POST /api/auth/sign-in/email also returns one. It is the stronger of the two ways to name a shopper and always wins over shopperEmail, and on every shopper-scoped route it is sent *in addition to* agentKey, never instead of it.",
         },
         cartCookie: {
           type: "apiKey",
           in: "cookie",
           name: "cartId",
           description:
-            "Anonymous browser bag, set by the first POST /api/cart/lines and returned automatically by the browser. Adopted by the account on the first authenticated call. Not usable by an agent, which cannot carry a cookie between calls — an agent signs the shopper in and uses their bearer token instead.",
+            "Anonymous browser bag, set by the first POST /api/cart/lines and returned automatically by the browser. Adopted by the account on the first authenticated call. Not usable by an agent, which cannot carry a cookie between calls — an agent names the shopper with X-Shopper-Email or a bearer token instead.",
         },
       },
     },

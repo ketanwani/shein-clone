@@ -36,6 +36,7 @@ So an agent sends two credentials, answering two distinct questions:
 | Header | Answers | Set by | Changes |
 | --- | --- | --- | --- |
 | `X-Agent-Key` | "Is this really the GLOWA agent?" | GLOWA issues one shared secret; the agent platform injects it | Static |
+| `X-Shopper-Email` | "Which shopper is this for?" | The agent, per shopper (demo mode only) | Per request |
 | `Authorization: Bearer` | "Which shopper is this for, and did they agree?" | The shopper, by returning a 6-digit code sent to their address | Per sign-in, ~7 days |
 
 They are checked independently: a valid token with no agent key is rejected, and so is an
@@ -45,9 +46,14 @@ There used to be a third header, `X-Customer-Ref` — an opaque per-conversation
 agent asserted, which keyed the bag and provisioned a shopper on first sight. It has been
 removed. A ref is the *caller* claiming who it is acting for, so everything it unlocked
 was reachable by anyone holding the shared secret. The bag, profile, wishlist and order
-history are now all keyed by an account the shopper proved they own, which means **the
-shopper must sign in before the first add-to-bag**, not merely before checkout. Requests
-that still send the header are ignored rather than rejected.
+history are all keyed by an account, so **a shopper must be named before the first
+add-to-bag**, not merely before checkout. Requests that still send the ref are ignored
+rather than rejected.
+
+`X-Shopper-Email` reintroduces that same weakness on purpose, and only for the demo: the
+Instagram agent runtime cannot yet carry a bearer token between calls, so there is
+nothing to name the shopper with. It is off unless `ALLOW_SHOPPER_EMAIL_HEADER` is set,
+and the OTP token remains the correct mechanism to return to.
 
 ### Configuring `AGENT_API_KEY`
 
@@ -91,9 +97,14 @@ A few rules the server enforces:
 
 - The key is compared in **constant time**, and is never logged, echoed, or included in
   an error message.
-- A bearer token is required on every shopper-scoped route — cart, customer, wishlist and
-  orders. Without one they return `401` with a hint telling the agent to run the OTP flow
-  and retry, because that state is routine and recoverable rather than a dead end.
+- Every shopper-scoped route — cart, customer, wishlist and orders — must name a shopper,
+  with `X-Shopper-Email` or a bearer token. The token wins when both are sent. Naming
+  nobody returns `400` with a hint telling the agent what to send; a missing or wrong
+  agent key returns `401`. Both are routine and recoverable rather than a dead end.
+- **`X-Shopper-Email` is asserted by the caller and proves nothing.** Anyone holding the
+  agent key can act as any address. It is off unless `ALLOW_SHOPPER_EMAIL_HEADER` is set,
+  exists only because the agent runtime cannot yet carry a bearer token between calls,
+  and is acceptable only on a demo deployment with mock data.
 - **Email is never a lookup key.** It is write-only contact data on the profile and the
   order. There is no way to reach a customer, an address book or an order history by
   supplying an email, so two shoppers who give the same address stay two separate

@@ -8,12 +8,12 @@ import {
   readOptionalString,
   readString,
 } from "@/lib/api/http"
-import { requireSessionSubject } from "@/lib/api/subject"
+import { requireShopperSubject } from "@/lib/api/subject"
 
 export async function GET(request: Request) {
   return handle(request, async () => {
     assertDatabaseConfigured()
-    const subject = await requireSessionSubject()
+    const subject = await requireShopperSubject()
     const addresses = await listAddresses(subject.userId)
     return json({ count: addresses.length, addresses })
   })
@@ -23,7 +23,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   return handle(request, async () => {
     assertDatabaseConfigured()
-    const subject = await requireSessionSubject()
+    const subject = await requireShopperSubject()
     const body = await readJsonBody(request)
 
     const isDefault = body.is_default
