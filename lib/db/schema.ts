@@ -127,6 +127,39 @@ export const orderIdempotency = pgTable(
   (table) => [primaryKey({ columns: [table.userId, table.key] })],
 )
 
+// A one-time link the agent hands the shopper so they can pay on our own page instead
+// of reading a card number into a DM.
+//
+// The token is never stored — only its SHA-256 — so a dump of this table cannot be
+// replayed as a checkout link.
+//
+// Two lifetimes, because they answer different questions. `expiresAt` is how long the
+// link in the chat stays tappable; `sessionExpiresAt` is how long the shopper then has
+// to actually type an address and a card. One short deadline for both would either
+// expire in the DM or strand someone mid-form.
+//
+// The grant authorises a checkout, not a login: bag, address book, and one order. It
+// deliberately cannot reach order history, the wishlist or account settings, because
+// anyone holding the agent key can mint one of these for any address.
+export const checkoutGrant = pgTable(
+  "checkout_grant",
+  {
+    id: text("id").primaryKey(),
+    userId: text("userId").notNull(),
+    /** SHA-256 of the token, hex. Compared in constant time; never reversed. */
+    tokenHash: text("tokenHash").notNull(),
+    /** How long the link stays tappable from the chat. */
+    expiresAt: timestamp("expiresAt").notNull(),
+    /** Set when the link is first exchanged; how long the form stays usable. */
+    sessionExpiresAt: timestamp("sessionExpiresAt"),
+    /** Set when an order is placed against this grant. Ends it. */
+    consumedAt: timestamp("consumedAt"),
+    orderId: integer("orderId"),
+    createdAt: timestamp("createdAt").notNull().defaultNow(),
+  },
+  (table) => [uniqueIndex("checkout_grant_token_idx").on(table.tokenHash)],
+)
+
 // Orders: one row per placed order. Scoped by userId.
 export const order = pgTable("order", {
   id: serial("id").primaryKey(),

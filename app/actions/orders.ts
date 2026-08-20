@@ -2,7 +2,9 @@
 
 import { and, desc, eq } from "drizzle-orm"
 import { db } from "@/lib/db"
+import { cookies } from "next/headers"
 import { requireSubject } from "@/lib/api/subject"
+import { CHECKOUT_COOKIE, checkCheckoutSession, consumeGrant } from "@/lib/checkout/grant"
 import {
   addressNotFound,
   findAddress,
@@ -12,7 +14,7 @@ import {
   type AddressPayload,
 } from "@/lib/api/customer"
 import { order, orderIdempotency, orderItem } from "@/lib/db/schema"
-import { getCartAction, clearCartAction } from "@/app/actions/cart"
+import { clearCartForUser, getCartForUser } from "@/lib/cart/store"
 
 const TEST_CARD = "4242424242424242"
 const FREE_SHIPPING_THRESHOLD = 29
@@ -114,8 +116,23 @@ export async function placeOrderAction(
   input: PlaceOrderInput,
   idempotencyKey?: string | null,
 ): Promise<PlaceOrderResult> {
-  const user = await getUserId()
+  return placeOrderForShopper(await getUserId(), input, idempotencyKey)
+}
 
+/**
+ * The order path itself, with the shopper already decided.
+ *
+ * Deliberately NOT exported. Every export from a `"use server"` module is an endpoint
+ * the browser can call, so exporting something that takes a userId would let anyone
+ * place an order as anyone. Callers in this file resolve the shopper first; the
+ * checkout-grant flow reaches it through placeOrderFromGrantAction below, which derives
+ * the shopper from an httpOnly cookie rather than from its arguments.
+ */
+async function placeOrderForShopper(
+  user: { id: string; email: string | null },
+  input: PlaceOrderInput,
+  idempotencyKey?: string | null,
+): Promise<PlaceOrderResult> {
   if (idempotencyKey) {
     const previous = await replayedOrderNumber(user.id, idempotencyKey)
     if (previous) return { ok: true, orderNumber: previous, replayed: true }
@@ -141,7 +158,7 @@ export async function placeOrderAction(
   }
 
   // Read the authoritative server-side cart from Shopify.
-  const cart = await getCartAction()
+  const cart = await getCartForUser(user.id)
   if (!cart || cart.lines.length === 0) {
     return { ok: false, error: "Your bag is empty." }
   }
@@ -263,9 +280,82 @@ async function writeOrder(
   await db.insert(orderItem).values(items.map((it) => ({ ...it, orderId: created.id })))
 
   // Empty the bag after a successful order.
-  await clearCartAction()
+  await clearCartForUser(userId)
 
   return { ok: true, orderNumber, replayed: false }
+}
+
+export type GrantCheckoutResult =
+  | { ok: true; orderNumber: string }
+  | { ok: false; error: string; expired?: boolean }
+
+/**
+ * Places the order behind a checkout link.
+ *
+ * Lives here, next to placeOrderForShopper, precisely so it can reach it without that
+ * function being exported. Every export from a `"use server"` module is callable from
+ * the browser, so an action taking a userId — or a grant object — would let anyone order
+ * as anyone. This takes only form fields and derives the shopper from the httpOnly
+ * cookie the proxy wrote.
+ *
+ * It runs the ordinary order path, so the row lands in Postgres exactly as
+ * POST /api/orders would: same totals recomputed server-side, same address-book save,
+ * same shape for the agent's list_orders and get_order afterwards.
+ */
+export async function submitGrantCheckoutAction(input: {
+  name: string
+  addressId?: string | null
+  address?: string | null
+  city?: string | null
+  zip?: string | null
+  country?: string | null
+  cardNumber: string
+  expiry: string
+  cvc: string
+}): Promise<GrantCheckoutResult> {
+  const token = (await cookies()).get(CHECKOUT_COOKIE)?.value
+  if (!token) return { ok: false, expired: true, error: "This checkout link is no longer valid." }
+
+  const check = await checkCheckoutSession(token)
+  if (!check.ok) {
+    return { ok: false, expired: true, error: "This checkout link has expired or has already been used." }
+  }
+  const grant = check.grant
+
+  const profile = await getProfile(grant.userId)
+
+  const result = await placeOrderForShopper(
+    { id: grant.userId, email: profile.email },
+    {
+      // The shopper's own address on the account; the form never asks for it again.
+      email: profile.email,
+      name: input.name,
+      addressId: input.addressId ?? null,
+      address: input.address ?? null,
+      city: input.city ?? null,
+      zip: input.zip ?? null,
+      country: input.country ?? null,
+      cardNumber: input.cardNumber,
+      expiry: input.expiry,
+      cvc: input.cvc,
+    },
+    // The grant is the idempotency key, so a double submit replays the first order
+    // rather than buying the bag twice.
+    grant.id,
+  )
+
+  if (!result.ok) return { ok: false, error: result.error }
+
+  // End the grant. Conditional inside consumeGrant, so two submits racing cannot both
+  // claim it; the loser already replayed the same order via the idempotency key.
+  const [placed] = await db
+    .select({ id: order.id })
+    .from(order)
+    .where(and(eq(order.userId, grant.userId), eq(order.orderNumber, result.orderNumber)))
+    .limit(1)
+  await consumeGrant(grant.id, placed?.id ?? null)
+
+  return { ok: true, orderNumber: result.orderNumber }
 }
 
 export async function getOrdersAction() {

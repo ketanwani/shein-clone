@@ -4,22 +4,63 @@ import type { Metadata } from "next"
 import Image from "next/image"
 import Link from "next/link"
 import { CheckCircle2 } from "lucide-react"
+import { cookies } from "next/headers"
+import { and, eq } from "drizzle-orm"
 import { auth } from "@/lib/auth"
+import { db } from "@/lib/db"
+import { order as orderTable, orderItem } from "@/lib/db/schema"
 import { getOrderByNumberAction } from "@/app/actions/orders"
+import { CHECKOUT_COOKIE, grantReceipt } from "@/lib/checkout/grant"
 import { formatPrice } from "@/lib/utils/format"
 
-export const metadata: Metadata = { title: "Order Confirmed — GLOWA" }
+export const metadata: Metadata = {
+  title: "Order Confirmed — GLOWA",
+  robots: { index: false, follow: false, nocache: true },
+}
+
+const BACK_TO_CHAT = "https://ig.me/m/glowa.assistant"
+
+/**
+ * The order this receipt is for, when the shopper arrived from a chat link.
+ *
+ * Scoped to the single order the grant paid for: matched by the grant's own orderId as
+ * well as the number in the URL, so the cookie cannot be pointed at another order.
+ */
+async function orderFromGrant(orderNumber: string) {
+  const token = (await cookies()).get(CHECKOUT_COOKIE)?.value
+  if (!token) return null
+
+  const receipt = await grantReceipt(token)
+  if (!receipt) return null
+
+  const [found] = await db
+    .select()
+    .from(orderTable)
+    .where(and(eq(orderTable.id, receipt.orderId), eq(orderTable.orderNumber, orderNumber)))
+    .limit(1)
+  if (!found) return null
+
+  const items = await db.select().from(orderItem).where(eq(orderItem.orderId, found.id))
+  return { ...found, items }
+}
 
 export default async function OrderSuccessPage({
   params,
 }: {
   params: Promise<{ orderNumber: string }>
 }) {
-  const session = await auth.api.getSession({ headers: await headers() })
-  if (!session?.user) redirect("/login")
-
   const { orderNumber } = await params
-  const order = await getOrderByNumberAction(orderNumber)
+
+  // A shopper who came from a chat link has no account session and must not be bounced
+  // to a login form. Their grant proves exactly one thing: it bought this order.
+  const fromGrant = await orderFromGrant(orderNumber)
+
+  let order = fromGrant
+  if (!order) {
+    const session = await auth.api.getSession({ headers: await headers() })
+    if (!session?.user) redirect("/login")
+    order = await getOrderByNumberAction(orderNumber)
+  }
   if (!order) redirect("/account")
 
   const currency = order.currency

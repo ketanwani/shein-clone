@@ -142,6 +142,10 @@ export function logRequestStart(request: Request): Pending | null {
   if (!enabled()) return null
 
   const url = new URL(request.url)
+  // A checkout token in a query string must not reach a log line. The proxy strips it
+  // from the browser's URL, but anything logging the raw request would still keep a
+  // copy, and that copy is a usable link.
+  if (url.searchParams.has("t")) url.searchParams.set("t", "[redacted]")
   const pending: Pending = {
     id: `#${String(++counter).padStart(3, "0")}`,
     method: request.method,
