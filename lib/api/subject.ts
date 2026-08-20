@@ -3,13 +3,16 @@
  *
  * Two answers, tried in that order:
  *
- *   session          a bearer token from the email-OTP flow, or a browser cookie
  *   X-Shopper-Email  the address the caller names, provisioned on first sight
+ *   session          a browser cookie, or a bearer token from the email-OTP flow
  *
- * The session wins whenever there is one. It is the stronger claim — the shopper proved
- * the address is theirs — so the website's logged-in flows are unaffected by any header
- * an agent might also send, and switching back to token-only identity later is a matter
- * of turning the header off.
+ * The header leads. It is what the agent sends on every call, so it is the answer for
+ * every agent request, and no token is needed anywhere on this surface.
+ *
+ * The session is the fallback, and it is what keeps the website working: a browser
+ * sends a cookie and no header, so it resolves exactly as it always did. A bearer token
+ * still works too, for anyone holding one. Turning the header off restores token-only
+ * identity without touching anything else.
  *
  * The header exists because the Instagram agent runtime cannot currently carry a token
  * between calls; see lib/api/shopper.ts for why, and for the security it costs.
@@ -33,7 +36,7 @@ import { ApiFailure, assertDatabaseConfigured } from "@/lib/api/http"
  * and names the one header that fixes it.
  */
 export const NO_SHOPPER_HINT =
-  "This is expected and recoverable — do not hand off to a human. No shopper was named. Send X-Shopper-Email with the shopper's email address (the same value on every call for that shopper), alongside X-Agent-Key, and retry. Alternatively, if you hold a session token from POST /api/auth/sign-in/email-otp, send it as `Authorization: Bearer <token>` instead."
+  "This is expected and recoverable — do not hand off to a human. No shopper was named. Send X-Shopper-Email with the shopper's email address, using the same value on every call for that shopper, alongside X-Agent-Key, and retry. No sign-in, token or password is needed."
 
 /** Same situation, worded for a deployment where the email header is switched off. */
 const TOKEN_ONLY_HINT =
@@ -67,7 +70,7 @@ function noShopperNamed() {
     400,
     "bad_request",
     shopperEmailHeaderEnabled()
-      ? "No shopper identified. Send X-Shopper-Email, or a bearer token."
+      ? "No shopper identified. Send X-Shopper-Email with the shopper's email address."
       : "No shopper identified. Send a bearer token.",
     shopperEmailHeaderEnabled() ? NO_SHOPPER_HINT : TOKEN_ONLY_HINT,
   )
@@ -83,10 +86,11 @@ function noShopperNamed() {
 export async function resolveSubject(): Promise<Subject | null> {
   await assertAgentKey()
 
-  const user = await sessionUser()
-  if (user) return { userId: user.id, email: user.email }
+  const named = await resolveShopperByEmail()
+  if (named) return named
 
-  return resolveShopperByEmail()
+  const user = await sessionUser()
+  return user ? { userId: user.id, email: user.email } : null
 }
 
 /** The subject for a route that requires one. */
@@ -100,20 +104,20 @@ export async function requireSubject(): Promise<Subject> {
 /**
  * The subject for a shopper-scoped route: wishlist, orders, and the customer profile.
  *
- * X-Agent-Key proves the caller and is always required. The shopper comes from a session
- * if there is one, otherwise from X-Shopper-Email. A request with neither names nobody,
- * which is a 400 naming both options rather than a 401 — there is no credential to
- * reject, only a missing one to supply.
+ * X-Agent-Key proves the caller and is always required. The shopper comes from
+ * X-Shopper-Email, falling back to a session for browsers and anyone holding a token.
+ * A request with neither names nobody, which is a 400 rather than a 401 — there is no
+ * credential to reject, only a missing one to supply.
  */
 export async function requireShopperSubject(): Promise<Subject> {
   assertDatabaseConfigured()
   await requireAgentKey()
 
-  const user = await sessionUser()
-  if (user) return { userId: user.id, email: user.email }
-
   const named = await resolveShopperByEmail()
   if (named) return named
+
+  const user = await sessionUser()
+  if (user) return { userId: user.id, email: user.email }
 
   throw noShopperNamed()
 }

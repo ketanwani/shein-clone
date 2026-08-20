@@ -106,10 +106,13 @@ async function main() {
   })
   check("POST /api/cart/lines naming nobody -> 400", noToken.status === 400, `got ${noToken.status}`)
   check("...code \"bad_request\"", noToken.json?.error?.code === "bad_request")
+  // The hint adapts to the deployment: it names the header where the header is on, and
+  // the OTP flow where it is off. Either way it must read as recoverable.
+  const hint = noToken.json?.error?.hint ?? ""
+  const expected = process.env.ALLOW_SHOPPER_EMAIL_HEADER?.trim() ? "X-Shopper-Email" : "/api/auth/sign-in/email-otp"
   check(
-    "...hint tells the agent to run the OTP flow, not to give up",
-    (noToken.json?.error?.hint ?? "").includes("do not hand off to a human") &&
-      (noToken.json?.error?.hint ?? "").includes("/api/auth/sign-in/email-otp"),
+    `...hint names what to send (${expected}) and is not a dead end`,
+    hint.includes("do not hand off to a human") && hint.includes(expected),
   )
   const cartNoToken = await call("/api/cart")
   check("GET /api/cart naming nobody -> 400", cartNoToken.status === 400, `got ${cartNoToken.status}`)
@@ -266,12 +269,17 @@ async function main() {
     const other = await call("/api/wishlist", { shopper: `${unique("someone-else")}@example.com` })
     check("a different address sees none of it", (other.json?.handles ?? []).length === 0)
 
-    // The token must win, or a stray header could redirect a signed-in shopper's writes.
-    const tokenHolder = await signIn(`${unique("tokenwins")}@example.com`)
+    // The header leads: it is what the agent sends, so it decides. A token is still
+    // honoured on its own, which is what keeps browser sessions and the OTP flow working.
+    const tokenHolder = await signIn(`${unique("tokenfallback")}@example.com`)
     await call("/api/wishlist", { method: "POST", token: tokenHolder.token, body: { handle: "token-only" } })
+
+    const tokenAlone = await call("/api/wishlist", { token: tokenHolder.token })
+    check("a token alone still works", (tokenAlone.json?.handles ?? []).includes("token-only"))
+
     const both = await call("/api/wishlist", { token: tokenHolder.token, shopper: addr })
-    check("bearer wins when both are sent", (both.json?.handles ?? []).includes("token-only"))
-    check("...and the header's shopper is not used", !(both.json?.handles ?? []).includes("header-saved"))
+    check("the email header wins when both are sent", (both.json?.handles ?? []).includes("header-saved"))
+    check("...and the token holder's data is not returned", !(both.json?.handles ?? []).includes("token-only"))
 
     const malformed = await call("/api/wishlist", { shopper: "not-an-email" })
     check("a malformed address names nobody -> 400", malformed.status === 400, `got ${malformed.status}`)

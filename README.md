@@ -37,7 +37,7 @@ So an agent sends two credentials, answering two distinct questions:
 | --- | --- | --- | --- |
 | `X-Agent-Key` | "Is this really the GLOWA agent?" | GLOWA issues one shared secret; the agent platform injects it | Static |
 | `X-Shopper-Email` | "Which shopper is this for?" | The agent, per shopper (demo mode only) | Per request |
-| `Authorization: Bearer` | "Which shopper is this for, and did they agree?" | The shopper, by returning a 6-digit code sent to their address | Per sign-in, ~7 days |
+| `Authorization: Bearer` | Optional. Only for routes that inspect a live session, and for browser/token clients | The shopper, via the OTP flow | Per sign-in, ~7 days |
 
 They are checked independently: a valid token with no agent key is rejected, and so is an
 agent key with no token.
@@ -97,10 +97,12 @@ A few rules the server enforces:
 
 - The key is compared in **constant time**, and is never logged, echoed, or included in
   an error message.
-- Every shopper-scoped route — cart, customer, wishlist and orders — must name a shopper,
-  with `X-Shopper-Email` or a bearer token. The token wins when both are sent. Naming
-  nobody returns `400` with a hint telling the agent what to send; a missing or wrong
-  agent key returns `401`. Both are routine and recoverable rather than a dead end.
+- Every shopper-scoped route — cart, customer, wishlist and orders — is named by
+  `X-Shopper-Email`. **No token, sign-in or password is involved on that path**: nothing
+  to store between calls, nothing to refresh. Naming nobody returns `400` with a hint
+  saying what to send; a missing or wrong agent key returns `401`. Both are routine and
+  recoverable rather than a dead end. A bearer token or browser cookie is still honoured
+  when no header is present, which is what keeps the website's logged-in pages working.
 - **`X-Shopper-Email` is asserted by the caller and proves nothing.** Anyone holding the
   agent key can act as any address. It is off unless `ALLOW_SHOPPER_EMAIL_HEADER` is set,
   exists only because the agent runtime cannot yet carry a bearer token between calls,
@@ -146,23 +148,17 @@ at all. Ask at checkout, or you have replaced a login wall with an interrogation
 
 ### Worked example: a full purchase, no cookie jar
 
-Note that `curl` is never given `-b`/`-c`. The shopper signs in once and the token carries
-the rest.
+Note that `curl` is never given `-b`/`-c`, and there is no sign-in step. Every call
+carries the same two headers.
 
 ```bash
 BASE=http://localhost:3000
-export AGENT_KEY='dev-agent-key'   # locally; the real secret anywhere shared
+export AGENT_KEY='dev-agent-key'          # locally; the real secret anywhere shared
+export SHOPPER_EMAIL='ada@example.com'    # who the calls are for
 JSON=(-H 'Content-Type: application/json')
 
-# 0. Sign the shopper in. Needs DEMO_OTP_CODE set, since no mail provider is wired up.
-curl -s -X POST -H "X-Agent-Key: $AGENT_KEY" "${JSON[@]}" \
-  -d '{"email":"ada@example.com","type":"sign-in"}' \
-  "$BASE/api/auth/email-otp/send-verification-otp"
-TOKEN=$(curl -s -X POST -H "X-Agent-Key: $AGENT_KEY" "${JSON[@]}" \
-  -d '{"email":"ada@example.com","otp":"000000"}' \
-  "$BASE/api/auth/sign-in/email-otp" | jq -r .data.token)
-
-AUTH=(-H "X-Agent-Key: $AGENT_KEY" -H "Authorization: Bearer $TOKEN")
+# No sign-in step: the two headers are the whole credential set.
+AUTH=(-H "X-Agent-Key: $AGENT_KEY" -H "X-Shopper-Email: $SHOPPER_EMAIL")
 
 # 1. Find something to buy (catalogue reads are public — no headers needed).
 curl -s "$BASE/api/search?q=hoodie&limit=5" | jq -r '.products[] | "\(.handle)  \(.title)"'
