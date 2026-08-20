@@ -1,30 +1,12 @@
 "use server"
 
 import { cookies } from "next/headers"
-import { eq } from "drizzle-orm"
-import { db } from "@/lib/db"
-import { userCart } from "@/lib/db/schema"
 import { resolveSubject } from "@/lib/api/subject"
+import { clearCartForUser, rememberCart, savedCartId } from "@/lib/cart/store"
 import { createCart, getCart, addToCart, updateCart, removeFromCart } from "@/lib/shopify/cart"
 import type { Cart } from "@/lib/shopify/types"
 
 const CART_COOKIE = "cartId"
-
-async function savedCartId(userId: string): Promise<string | null> {
-  const [saved] = await db
-    .select({ cartId: userCart.cartId })
-    .from(userCart)
-    .where(eq(userCart.userId, userId))
-    .limit(1)
-  return saved?.cartId ?? null
-}
-
-async function rememberCart(userId: string, cartId: string) {
-  await db
-    .insert(userCart)
-    .values({ userId, cartId })
-    .onConflictDoUpdate({ target: userCart.userId, set: { cartId, updatedAt: new Date() } })
-}
 
 function writeCartCookie(store: Awaited<ReturnType<typeof cookies>>, cartId: string) {
   store.set(CART_COOKIE, cartId, {
@@ -113,5 +95,5 @@ export async function clearCartAction(): Promise<void> {
   const store = await cookies()
   store.delete(CART_COOKIE)
 
-  if (subject) await db.delete(userCart).where(eq(userCart.userId, subject.userId))
+  if (subject) await clearCartForUser(subject.userId)
 }

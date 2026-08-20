@@ -964,7 +964,7 @@ export const API_GROUPS: ApiGroup[] = [
         path: "/api/customer",
         summary: "What do we still need to ask for?",
         description:
-          "The shopper's profile and saved addresses. **Always 200**, including for a customer ref that has never been seen — an unknown shopper is a normal state on the happy path, not an error, so there is no 404 to handle. Read `missing` to decide what to ask; read `addresses` to offer a choice.",
+          "The shopper's profile and saved addresses. **Always 200**, including for an address that has never been seen — an unknown shopper is a normal state on the happy path, not an error, so there is no 404 to handle. Read `missing` to decide what to ask; read `addresses` to offer a choice.",
         auth: "shopper",
         params: SHOPPER_HEADERS,
         responses: [
@@ -1066,7 +1066,7 @@ export const API_GROUPS: ApiGroup[] = [
         path: "/api/cart",
         summary: "Get the current bag",
         description:
-          "Returns the caller's bag, or null when no bag exists yet. The bag is found by customer ref for an agent, by account for a signed-in caller, and by cartId cookie otherwise.",
+          "Returns the caller's bag, or null when no bag exists yet. The bag is found by the account named in `X-Shopper-Email` for an agent, by the session for a signed-in browser, and by the `cartId` cookie for an anonymous one.",
         auth: "cart",
         params: SHOPPER_HEADERS,
         responses: [
@@ -1104,7 +1104,7 @@ export const API_GROUPS: ApiGroup[] = [
           SHOPIFY_UNAVAILABLE,
         ],
         notes: [
-          "Agents: nothing to persist between calls beyond the shopper's token. Send it again and the bag is already there.",
+          "Agents: nothing to persist between calls. Send the same `X-Shopper-Email` again and the bag is already there.",
           "Anonymous browsers only: save the response's Set-Cookie header, or the next call starts an empty bag.",
         ],
       },
@@ -1137,7 +1137,7 @@ export const API_GROUPS: ApiGroup[] = [
         path: "/api/cart",
         summary: "Empty the bag",
         description:
-          "Abandons the bag — the stored reference for an agent's customer ref or a signed-in account, and the cartId cookie for an anonymous browser. The next add starts a fresh one.",
+          "Abandons the bag — the stored reference for the account, and the `cartId` cookie for an anonymous browser. The next add starts a fresh one.",
         auth: "cart",
         params: SHOPPER_HEADERS,
         responses: [
@@ -1223,6 +1223,62 @@ export const API_GROUPS: ApiGroup[] = [
     ],
   },
   {
+    name: "Checkout",
+    slug: "checkout",
+    description:
+      "Hosted checkout, so the agent never handles a card.\n\nMint a link with `POST /api/checkout-links` and give the shopper the `url`. They enter their address and card on GLOWA's own page; nothing sensitive passes back through the chat, and no card number is ever read out in a DM transcript. When they are done, read the order back with `GET /api/orders` as usual — it lands in exactly the same shape as one placed through `POST /api/orders`.\n\nThe link is good for **10 minutes** and for a **single order**. Fetching it does not spend it — Instagram fetches links to build preview cards, and a link consumed by the unfurl bot would be dead before the shopper ever tapped it — so it ends when an order is placed against it, or when it expires.\n\nThe link authorises a checkout, not a sign-in. It reaches that shopper's bag, their address book, and one order, and nothing else: not their order history, not their wishlist, not their account settings.",
+    endpoints: [
+      {
+        method: "POST",
+        path: "/api/checkout-links",
+        summary: "Mint a checkout link",
+        description:
+          "Creates a one-time link for the shopper named by `X-Shopper-Email` and returns it. No body.\n\nGive the `url` to the shopper and stop there — do not ask them for card details, and do not read a card number into the chat. Read `GET /api/orders` afterwards to confirm.",
+        auth: "shopper",
+        params: SHOPPER_HEADERS,
+        responses: [
+          {
+            status: 201,
+            description: "Link minted. Give `url` to the shopper as-is.",
+            schema: obj(
+              {
+                url: str("The checkout page for this shopper. Hand it over unchanged; it carries a one-time token."),
+                expires_at: str("ISO 8601, UTC. After this the link is dead and a new one must be minted."),
+              },
+              ["url", "expires_at"],
+            ),
+            example: {
+              url: "https://shein-clone-ruby.vercel.app/checkout?t=F5u2x10t9vzFdy9Y_6QPmaHvAUnqpYULWqc",
+              expires_at: "2026-08-20T11:13:57.572Z",
+            },
+          },
+          errorResponse(400, "The shopper's bag is empty, so there is nothing to buy.", {
+            error: {
+              code: "order_rejected",
+              message: "This shopper's bag is empty, so there is nothing to check out.",
+              hint: "Add at least one item first: POST /api/cart/lines with {merchandiseId, quantity} and the same X-Shopper-Email, then call POST /api/checkout-links again.",
+            },
+          }),
+          errorResponse(429, "This shopper is already holding the maximum number of unused links.", {
+            error: {
+              code: "rate_limited",
+              message: "This shopper already has the maximum number of unused checkout links open.",
+              hint: "Point them at the link you already sent — it stays valid for 10 minutes and is still good. A link frees up as soon as it is used or expires, so once they finish this order you can mint the next one straight away.",
+            },
+          }),
+          ...SHOPPER_UNAUTHORIZED,
+          DATABASE_UNAVAILABLE,
+        ],
+        notes: [
+          "Both `url` and `expires_at` are part of the contract — a connector extracts them by literal path and breaks silently if either moves.",
+          "The link works for 10 minutes and for one order. Fetching it does not spend it, so a link preview will not break it.",
+          "**A shopper may hold 3 unused links at once.** The limit is on links they have not acted on, not on how many you mint: placing an order spends that link and frees its slot immediately, so a shopper buying several items one at a time never runs out. You only see 429 after sending three links nobody used, and the fix is to point at the last one rather than to retry.",
+          "Do not put the URL anywhere but the shopper's own chat: anyone holding it can complete this one purchase.",
+        ],
+      },
+    ],
+  },
+  {
     name: "Orders",
     slug: "orders",
     description:
@@ -1233,7 +1289,7 @@ export const API_GROUPS: ApiGroup[] = [
         path: "/api/orders",
         summary: "Place an order",
         description:
-          "Converts the shopper's current bag into an order and empties the bag. The credential identifies both the buyer and the bag, so no cookie is required.\n\nShip it two ways: send `address_id` from the shopper's address book, or send a full inline address, which is saved to the book for next time and whose id comes back on the order. If both are sent, `address_id` wins. `email` and `name` fall back to the stored profile, so a returning shopper checks out with nothing but an address id and a card.\n\nTotals are recomputed server-side from Shopify prices — subtotal, plus 3.99 shipping under a 29 subtotal, plus 8% tax — so no amounts are accepted from the client.",
+          "**Prefer `POST /api/checkout-links`.** This route takes card details in the body, which means asking the shopper to type a card number into the chat, and DM transcripts are persisted and logged. It remains for the website's own checkout.\n\nConverts the shopper's current bag into an order and empties the bag. The credential identifies both the buyer and the bag, so no cookie is required.\n\nShip it two ways: send `address_id` from the shopper's address book, or send a full inline address, which is saved to the book for next time and whose id comes back on the order. If both are sent, `address_id` wins. `email` and `name` fall back to the stored profile, so a returning shopper checks out with nothing but an address id and a card.\n\nTotals are recomputed server-side from Shopify prices — subtotal, plus 3.99 shipping under a 29 subtotal, plus 8% tax — so no amounts are accepted from the client.",
         auth: "shopper",
         params: [
           ...SHOPPER_HEADERS,
