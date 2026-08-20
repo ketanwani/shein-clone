@@ -1,173 +1,99 @@
-import { shopifyFetch } from "./client"
-import { absoluteImageUrl, absoluteUrl } from "@/lib/api/url"
-import { productPath } from "@/lib/routes"
-import type { Product, ProductImage } from "./types"
+/**
+ * The product API. Backed by lib/catalogue, not by Shopify.
+ *
+ * mock.shop serves 29 products with no productType and no usable tags, so it cannot
+ * answer "show me ten dresses" — every category page rendered the same 29 items. The
+ * catalogue moved in-process; the bag did not, because cart lines still need real
+ * merchandise ids. See lib/catalogue/index.ts.
+ *
+ * The signatures and the `query` dialect are unchanged on purpose: callers still pass
+ * `product_type:'Dresses'` or `tag:'Sale'` or free text, so nothing above this file had
+ * to move, and swapping a real Shopify store back in means reinstating the fetches here
+ * and nothing else.
+ */
 
-const PRODUCT_FRAGMENT = /* GraphQL */ `
-  fragment ProductFields on Product {
-    id
-    handle
-    title
-    description
-    descriptionHtml
-    productType
-    tags
-    availableForSale
-    featuredImage {
-      url
-      altText
-      width
-      height
-    }
-    images(first: 8) {
-      edges {
-        node {
-          url
-          altText
-          width
-          height
-        }
-      }
-    }
-    options {
-      id
-      name
-      values
-    }
-    variants(first: 100) {
-      edges {
-        node {
-          id
-          title
-          availableForSale
-          selectedOptions {
-            name
-            value
-          }
-          price {
-            amount
-            currencyCode
-          }
-          compareAtPrice {
-            amount
-            currencyCode
-          }
-        }
-      }
-    }
-    priceRange {
-      minVariantPrice {
-        amount
-        currencyCode
-      }
-      maxVariantPrice {
-        amount
-        currencyCode
-      }
-    }
-    compareAtPriceRange {
-      minVariantPrice {
-        amount
-        currencyCode
-      }
-      maxVariantPrice {
-        amount
-        currencyCode
-      }
-    }
-  }
-`
+import {
+  allProducts,
+  productByHandle,
+  productsByTag,
+  productsByType,
+  searchProducts,
+} from "@/lib/catalogue"
+import type { Product } from "./types"
 
-type RawProduct = Omit<Product, "images" | "variants" | "url"> & {
-  images: { edges: { node: ProductImage }[] }
-  variants: { edges: { node: Product["variants"][number] }[] }
-}
+export type ProductSortKey = "BEST_SELLING" | "CREATED_AT" | "PRICE" | "TITLE" | "RELEVANCE"
 
-const withAbsoluteImage = (image: ProductImage): ProductImage => ({
-  ...image,
-  url: absoluteImageUrl(image.url),
-})
+/** `product_type:'Dresses'` / `tag:'Sale'`, the two structured forms callers build. */
+const FILTER = /^(product_type|tag):\s*'([^']*)'$/i
+
+const priceOf = (p: Product) => Number.parseFloat(p.priceRange.minVariantPrice.amount)
 
 /**
- * The one place a Product is built, which is why `url` is added here rather than in the
- * route handlers.
- *
- * Every catalogue endpoint — search, listing, detail, collection, recommendations — and
- * the wishlist expansion all funnel through this function, so a product cannot reach a
- * caller without its link, and a list response cannot disagree with a detail response.
+ * Applies the query, honouring the structured filters and otherwise treating it as
+ * something a shopper typed.
  */
-function reshape(raw: RawProduct | null): Product | null {
-  if (!raw) return null
-  return {
-    ...raw,
-    url: absoluteUrl(productPath(raw.handle)),
-    featuredImage: raw.featuredImage ? withAbsoluteImage(raw.featuredImage) : null,
-    images: raw.images.edges.map((e) => withAbsoluteImage(e.node)),
-    variants: raw.variants.edges.map((e) => e.node),
+function select(query: string | undefined): Product[] {
+  const trimmed = query?.trim()
+  if (!trimmed) return allProducts()
+
+  const structured = FILTER.exec(trimmed)
+  if (structured) {
+    const [, field, value] = structured
+    return field.toLowerCase() === "tag" ? productsByTag(value) : productsByType(value)
   }
+
+  return searchProducts(trimmed)
+}
+
+function sort(products: Product[], sortKey: ProductSortKey, reverse: boolean): Product[] {
+  const sorted = [...products]
+
+  switch (sortKey) {
+    case "TITLE":
+      sorted.sort((a, b) => a.title.localeCompare(b.title))
+      break
+    case "PRICE":
+      sorted.sort((a, b) => priceOf(a) - priceOf(b))
+      break
+    case "CREATED_AT":
+      // Catalogue order stands in for recency; `reverse` then reads as "newest first",
+      // which is what the home page asks for.
+      break
+    case "BEST_SELLING":
+    case "RELEVANCE":
+      // Already in the order select() produced — for a search that is match order, and
+      // for everything else it is the curated catalogue order.
+      break
+  }
+
+  return reverse ? sorted.reverse() : sorted
 }
 
 export async function getProducts(options?: {
   query?: string
-  sortKey?: "BEST_SELLING" | "CREATED_AT" | "PRICE" | "TITLE" | "RELEVANCE"
+  sortKey?: ProductSortKey
   reverse?: boolean
   first?: number
 }): Promise<Product[]> {
-  const data = await shopifyFetch<{ products: { edges: { node: RawProduct }[] } }>({
-    query: /* GraphQL */ `
-      query getProducts($query: String, $sortKey: ProductSortKeys, $reverse: Boolean, $first: Int!) {
-        products(query: $query, sortKey: $sortKey, reverse: $reverse, first: $first) {
-          edges {
-            node {
-              ...ProductFields
-            }
-          }
-        }
-      }
-      ${PRODUCT_FRAGMENT}
-    `,
-    variables: {
-      query: options?.query ?? "",
-      sortKey: options?.sortKey ?? "BEST_SELLING",
-      reverse: options?.reverse ?? false,
-      first: options?.first ?? 50,
-    },
-    cache: "no-store",
-  })
-
-  return data.products.edges.map((e) => reshape(e.node)).filter((p): p is Product => p !== null)
+  const selected = select(options?.query)
+  const ordered = sort(selected, options?.sortKey ?? "BEST_SELLING", options?.reverse ?? false)
+  return ordered.slice(0, options?.first ?? 50)
 }
 
 export async function getProduct(handle: string): Promise<Product | null> {
-  const data = await shopifyFetch<{ product: RawProduct | null }>({
-    query: /* GraphQL */ `
-      query getProduct($handle: String!) {
-        product(handle: $handle) {
-          ...ProductFields
-        }
-      }
-      ${PRODUCT_FRAGMENT}
-    `,
-    variables: { handle },
-    cache: "no-store",
-  })
-
-  return reshape(data.product)
+  return productByHandle(handle)
 }
 
+/**
+ * Other things from the same category, which is as much as a catalogue this size can
+ * honestly claim. Shopify's own recommendations endpoint needs order history to be
+ * anything better, and mock.shop has none.
+ */
 export async function getProductRecommendations(productId: string): Promise<Product[]> {
-  const data = await shopifyFetch<{ productRecommendations: RawProduct[] }>({
-    query: /* GraphQL */ `
-      query getRecs($productId: ID!) {
-        productRecommendations(productId: $productId) {
-          ...ProductFields
-        }
-      }
-      ${PRODUCT_FRAGMENT}
-    `,
-    variables: { productId },
-    cache: "no-store",
-  })
+  const source = allProducts().find((p) => p.id === productId)
+  if (!source) return []
 
-  return (data.productRecommendations ?? []).map((p) => reshape(p)).filter((p): p is Product => p !== null)
+  return productsByType(source.productType)
+    .filter((p) => p.id !== source.id)
+    .slice(0, 8)
 }

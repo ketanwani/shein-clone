@@ -149,7 +149,7 @@ const obj = (properties: Record<string, JsonSchema>, required?: string[]): JsonS
 })
 
 export const SCHEMAS: Record<string, JsonSchema> = {
-  Money: obj({ amount: str("Decimal string, e.g. \"12.99\""), currencyCode: str("ISO 4217, e.g. \"USD\"") }, [
+  Money: obj({ amount: str("Decimal string, e.g. \"18.99\""), currencyCode: str("ISO 4217, e.g. \"CAD\"") }, [
     "amount",
     "currencyCode",
   ]),
@@ -161,7 +161,7 @@ export const SCHEMAS: Record<string, JsonSchema> = {
   }),
   ProductOption: obj({ id: str(), name: str("e.g. \"Size\""), values: arrayOf(str()) }),
   ProductVariant: obj({
-    id: str("Shopify variant GID. This is the merchandiseId used when adding to the bag."),
+    id: str("Variant GID. This is the merchandiseId used when adding to the bag — copy it, do not construct it."),
     title: str(),
     availableForSale: bool(),
     selectedOptions: arrayOf(obj({ name: str(), value: str() })),
@@ -311,83 +311,126 @@ export const SCHEMAS: Record<string, JsonSchema> = {
 
 // --- Examples --------------------------------------------------------------
 
+/**
+ * A real product, copied from the live response rather than invented.
+ *
+ * The ids matter: `gid://glowa/...` is this storefront's own id space, and the variant id
+ * is what `POST /api/cart/lines` expects. An example carrying a plausible-looking
+ * `gid://glowa/ProductVariant/ruched-mesh-bodycon-midi-dress:m:black` is worse than no example, because an agent
+ * will copy it and get a 400 it cannot diagnose.
+ */
 export const PRODUCT_EXAMPLE = {
-  id: "gid://shopify/Product/8123456789",
-  handle: "ribbed-knit-mini-dress",
-  url: "https://shein-clone-ruby.vercel.app/products/ribbed-knit-mini-dress",
-  title: "Ribbed Knit Mini Dress",
-  description: "Bodycon mini dress in soft ribbed knit with a square neckline.",
-  descriptionHtml: "<p>Bodycon mini dress in soft ribbed knit with a square neckline.</p>",
+  id: "gid://glowa/Product/ruched-mesh-bodycon-midi-dress",
+  handle: "ruched-mesh-bodycon-midi-dress",
+  url: "https://shein-clone-ruby.vercel.app/products/ruched-mesh-bodycon-midi-dress",
+  title: "Ruched Mesh Bodycon Midi Dress",
+  description:
+    "Ruched Mesh Bodycon Midi Dress. Cut for an easy, close fit with a soft drape that moves with you. Machine wash cold, hang to dry.",
+  descriptionHtml:
+    "<p>Ruched Mesh Bodycon Midi Dress. Cut for an easy, close fit with a soft drape that moves with you. Machine wash cold, hang to dry.</p>",
   productType: "Dresses",
   tags: ["Women", "New In", "Sale"],
   availableForSale: true,
   featuredImage: {
-    url: "https://cdn.shopify.com/s/files/1/0000/dress-front.jpg",
-    altText: "Ribbed knit mini dress",
-    width: 1200,
-    height: 1600,
+    url: "https://shein-clone-ruby.vercel.app/api/placeholder/ruched-mesh-bodycon-midi-dress",
+    altText: "Ruched Mesh Bodycon Midi Dress",
+    width: 900,
+    height: 1200,
   },
   images: [
     {
-      url: "https://cdn.shopify.com/s/files/1/0000/dress-front.jpg",
-      altText: "Ribbed knit mini dress",
-      width: 1200,
-      height: 1600,
+      url: "https://shein-clone-ruby.vercel.app/api/placeholder/ruched-mesh-bodycon-midi-dress",
+      altText: "Ruched Mesh Bodycon Midi Dress",
+      width: 900,
+      height: 1200,
     },
   ],
-  options: [{ id: "gid://shopify/ProductOption/1001", name: "Size", values: ["S", "M", "L"] }],
+  options: [
+    {
+      id: "gid://glowa/Product/ruched-mesh-bodycon-midi-dress/Size",
+      name: "Size",
+      values: ["XS", "S", "M", "L", "XL"],
+    },
+    {
+      id: "gid://glowa/Product/ruched-mesh-bodycon-midi-dress/Color",
+      name: "Color",
+      values: ["Black", "Wine", "Sage", "Ivory"],
+    },
+  ],
   variants: [
     {
-      id: "gid://shopify/ProductVariant/44123456789",
-      title: "M",
+      id: "gid://glowa/ProductVariant/ruched-mesh-bodycon-midi-dress:m:black",
+      title: "M / Black",
       availableForSale: true,
-      selectedOptions: [{ name: "Size", value: "M" }],
-      price: { amount: "12.99", currencyCode: "USD" },
-      compareAtPrice: { amount: "29.99", currencyCode: "USD" },
+      selectedOptions: [
+        { name: "Size", value: "M" },
+        { name: "Color", value: "Black" },
+      ],
+      price: { amount: "18.99", currencyCode: "CAD" },
+      compareAtPrice: { amount: "32.00", currencyCode: "CAD" },
     },
   ],
   priceRange: {
-    minVariantPrice: { amount: "12.99", currencyCode: "USD" },
-    maxVariantPrice: { amount: "12.99", currencyCode: "USD" },
+    minVariantPrice: { amount: "18.99", currencyCode: "CAD" },
+    maxVariantPrice: { amount: "18.99", currencyCode: "CAD" },
   },
   compareAtPriceRange: {
-    minVariantPrice: { amount: "29.99", currencyCode: "USD" },
-    maxVariantPrice: { amount: "29.99", currencyCode: "USD" },
+    minVariantPrice: { amount: "32.00", currencyCode: "CAD" },
+    maxVariantPrice: { amount: "32.00", currencyCode: "CAD" },
   },
 }
 
 const PRODUCT_BRIEF = {
-  id: "gid://shopify/Product/8123456789",
-  handle: "ribbed-knit-mini-dress",
-  url: "https://shein-clone-ruby.vercel.app/products/ribbed-knit-mini-dress",
-  title: "Ribbed Knit Mini Dress",
+  id: "gid://glowa/Product/ruched-mesh-bodycon-midi-dress",
+  handle: "ruched-mesh-bodycon-midi-dress",
+  url: "https://shein-clone-ruby.vercel.app/products/ruched-mesh-bodycon-midi-dress",
+  title: "Ruched Mesh Bodycon Midi Dress",
   productType: "Dresses",
   availableForSale: true,
-  priceRange: { minVariantPrice: { amount: "12.99", currencyCode: "USD" } },
-  variants: [{ id: "gid://shopify/ProductVariant/44123456789", title: "M", availableForSale: true }],
+  priceRange: { minVariantPrice: { amount: "18.99", currencyCode: "CAD" } },
+  variants: [
+    {
+      id: "gid://glowa/ProductVariant/ruched-mesh-bodycon-midi-dress:m:black",
+      title: "M / Black",
+      availableForSale: true,
+    },
+  ],
 }
 
 const ABBREVIATED = "Product objects are abbreviated here. Every field in the Product schema is returned."
 
+/**
+ * The cart id is Shopify's and the merchandise id is ours — that mix is real, not a slip.
+ * The bag is held by Shopify, so `id` and the line ids come from them, while every line
+ * is restored to the product it actually represents before the response is built.
+ */
 export const CART_EXAMPLE = {
   id: "gid://shopify/Cart/c1-abc123",
   checkoutUrl: "https://your-store.myshopify.com/cart/c/c1-abc123",
   totalQuantity: 2,
   cost: {
-    subtotalAmount: { amount: "25.98", currencyCode: "USD" },
-    totalAmount: { amount: "25.98", currencyCode: "USD" },
+    subtotalAmount: { amount: "37.98", currencyCode: "CAD" },
+    totalAmount: { amount: "37.98", currencyCode: "CAD" },
   },
   lines: [
     {
       id: "gid://shopify/CartLine/line-1",
       quantity: 2,
-      cost: { totalAmount: { amount: "25.98", currencyCode: "USD" } },
+      cost: { totalAmount: { amount: "37.98", currencyCode: "CAD" } },
       merchandise: {
-        id: "gid://shopify/ProductVariant/44123456789",
-        title: "M",
-        selectedOptions: [{ name: "Size", value: "M" }],
-        image: { url: "https://cdn.shopify.com/s/files/1/0000/dress-front.jpg", altText: null, width: 1200, height: 1600 },
-        product: { handle: "ribbed-knit-mini-dress", title: "Ribbed Knit Mini Dress" },
+        id: "gid://glowa/ProductVariant/ruched-mesh-bodycon-midi-dress:m:black",
+        title: "M / Black",
+        selectedOptions: [
+          { name: "Size", value: "M" },
+          { name: "Color", value: "Black" },
+        ],
+        image: {
+          url: "https://shein-clone-ruby.vercel.app/api/placeholder/ruched-mesh-bodycon-midi-dress",
+          altText: "Ruched Mesh Bodycon Midi Dress",
+          width: 900,
+          height: 1200,
+        },
+        product: { handle: "ruched-mesh-bodycon-midi-dress", title: "Ruched Mesh Bodycon Midi Dress" },
       },
     },
   ],
@@ -407,7 +450,7 @@ const ORDER_EXAMPLE = {
   shipping: "3.99",
   tax: "2.08",
   total: "32.05",
-  currency: "USD",
+  currency: "CAD",
   cardLast4: "4242",
   status: "paid",
   addressId: "addr_9f2c41a8b7e04d13",
@@ -416,12 +459,12 @@ const ORDER_EXAMPLE = {
     {
       id: 1,
       orderId: 1,
-      title: "Ribbed Knit Mini Dress",
+      title: "Ruched Mesh Bodycon Midi Dress",
       variantTitle: "M",
       quantity: 2,
       price: "12.99",
       imageUrl: "https://cdn.shopify.com/s/files/1/0000/dress-front.jpg",
-      productHandle: "ribbed-knit-mini-dress",
+      productHandle: "ruched-mesh-bodycon-midi-dress",
     },
   ],
 }
@@ -806,7 +849,7 @@ export const API_GROUPS: ApiGroup[] = [
             type: "string",
             required: true,
             description: "Product slug from any list response.",
-            example: "ribbed-knit-mini-dress",
+            example: "ruched-mesh-bodycon-midi-dress",
           },
         ],
         responses: [
@@ -824,7 +867,7 @@ export const API_GROUPS: ApiGroup[] = [
         description: "Shopify's recommendations for a product — useful for cross-sell suggestions.",
         auth: "public",
         params: [
-          { name: "handle", in: "path", type: "string", required: true, description: "Product slug.", example: "ribbed-knit-mini-dress" },
+          { name: "handle", in: "path", type: "string", required: true, description: "Product slug.", example: "ruched-mesh-bodycon-midi-dress" },
           { name: "limit", in: "query", type: "integer", description: "1–20.", default: 10, example: 4 },
         ],
         responses: [
@@ -1092,7 +1135,7 @@ export const API_GROUPS: ApiGroup[] = [
             type: "string",
             required: true,
             description: "Variant GID from a product's variants[].id — not the product id.",
-            example: "gid://shopify/ProductVariant/44123456789",
+            example: "gid://glowa/ProductVariant/ruched-mesh-bodycon-midi-dress:m:black",
           },
           { name: "quantity", type: "integer", description: "1–20. Defaults to 1.", example: 2 },
         ],
@@ -1174,7 +1217,7 @@ export const API_GROUPS: ApiGroup[] = [
             status: 200,
             description: "Saved handles, plus products when expanded.",
             schema: obj({ count: int(), handles: arrayOf(str()), products: arrayOf(ref("Product")) }),
-            example: { count: 2, handles: ["ribbed-knit-mini-dress", "cargo-parachute-pants"], products: [PRODUCT_BRIEF] },
+            example: { count: 2, handles: ["ruched-mesh-bodycon-midi-dress", "high-waist-wide-leg-cargo-trousers"], products: [PRODUCT_BRIEF] },
             exampleNote: `${ABBREVIATED} The products key is present only with expand=products.`,
           },
           ...SHOPPER_UNAUTHORIZED,
@@ -1189,14 +1232,14 @@ export const API_GROUPS: ApiGroup[] = [
         auth: "shopper",
         params: SHOPPER_HEADERS,
         body: [
-          { name: "handle", type: "string", required: true, description: "Product handle to save.", example: "ribbed-knit-mini-dress" },
+          { name: "handle", type: "string", required: true, description: "Product handle to save.", example: "ruched-mesh-bodycon-midi-dress" },
         ],
         responses: [
           {
             status: 201,
             description: "Saved; the full list is returned.",
             schema: obj({ count: int(), handles: arrayOf(str()) }),
-            example: { count: 2, handles: ["ribbed-knit-mini-dress", "cargo-parachute-pants"] },
+            example: { count: 2, handles: ["ruched-mesh-bodycon-midi-dress", "high-waist-wide-leg-cargo-trousers"] },
           },
           errorResponse(400, "Missing handle.", { error: { code: "bad_request", message: '"handle" is required and must be a non-empty string.' } }),
           ...SHOPPER_UNAUTHORIZED,
@@ -1212,10 +1255,10 @@ export const API_GROUPS: ApiGroup[] = [
         auth: "shopper",
         params: [
           ...SHOPPER_HEADERS,
-          { name: "handle", in: "path", type: "string", required: true, description: "Product handle to remove.", example: "ribbed-knit-mini-dress" },
+          { name: "handle", in: "path", type: "string", required: true, description: "Product handle to remove.", example: "ruched-mesh-bodycon-midi-dress" },
         ],
         responses: [
-          { status: 200, description: "Remaining handles.", schema: obj({ count: int(), handles: arrayOf(str()) }), example: { count: 1, handles: ["cargo-parachute-pants"] } },
+          { status: 200, description: "Remaining handles.", schema: obj({ count: int(), handles: arrayOf(str()) }), example: { count: 1, handles: ["high-waist-wide-leg-cargo-trousers"] } },
           ...SHOPPER_UNAUTHORIZED,
           DATABASE_UNAVAILABLE,
         ],

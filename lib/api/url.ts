@@ -57,6 +57,25 @@ function normaliseOrigin(raw: string | undefined): string | null {
 }
 
 /**
+ * The origin a development server should own, or null in production.
+ *
+ * NEXT_PUBLIC_SITE_URL is normally copied from the deployment, so honouring it locally
+ * points every product link, product image and checkout link at a host that does not
+ * have your work on it yet. That is not cosmetic: a locally generated image renders as a
+ * broken box because the request goes to production, and a freshly minted checkout link
+ * has to be hand-edited back to localhost before it can be opened.
+ *
+ * So development serves itself and NEXT_PUBLIC_SITE_URL applies in production, where the
+ * https-only contract is the thing that matters. Set GLOWA_SITE_URL_IN_DEV=1 to opt back
+ * into the configured origin — useful when checking exactly what the agent will be sent.
+ */
+function developmentOrigin(): string | null {
+  if (process.env.NODE_ENV === "production") return null
+  if (process.env.GLOWA_SITE_URL_IN_DEV?.trim()) return null
+  return `http://localhost:${process.env.PORT?.trim() || "3000"}`
+}
+
+/**
  * The origin every absolute URL is built on.
  *
  * NEXT_PUBLIC_SITE_URL is the intended knob. VERCEL_PROJECT_PRODUCTION_URL is the
@@ -68,6 +87,7 @@ function normaliseOrigin(raw: string | undefined): string | null {
  */
 export function siteOrigin(): string {
   return (
+    developmentOrigin() ??
     normaliseOrigin(process.env.NEXT_PUBLIC_SITE_URL) ??
     normaliseOrigin(process.env.VERCEL_PROJECT_PRODUCTION_URL) ??
     FALLBACK_ORIGIN
