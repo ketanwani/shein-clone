@@ -267,16 +267,15 @@ export default async function ApiDocsPage() {
             <h2 className="font-serif text-2xl font-extrabold">Agent quickstart</h2>
             <p className="mt-2 text-sm text-foreground/80">
               A complete buy flow. Send <code className="font-mono text-xs">X-Agent-Key</code> throughout, and{" "}
-              <code className="font-mono text-xs">Authorization: Bearer</code> from step 4 onwards. No cookie jar is
-              involved at any point.
+              <code className="font-mono text-xs">X-Shopper-Email</code> from step 4 onwards. Steps 1–3 are public and
+              need neither. No cookie jar, and no token, at any point.
             </p>
             <ol className="mt-4 space-y-2 text-sm text-foreground/80">
               {[
                 ["GET /api/collections", "discover valid category slugs"],
                 ["GET /api/search?q=summer%20dress", "find candidate products"],
                 ["GET /api/products/{handle}", "read variants[].id — that GID is the merchandiseId"],
-                ["POST /api/auth/sign-in/email-otp", "sign the shopper in; keep data.token. Or skip and send X-Shopper-Email instead"],
-                ["POST /api/cart/lines", "add to the bag, as the signed-in shopper"],
+                ["POST /api/cart/lines", "add to the bag — send X-Shopper-Email from here on"],
                 ["GET /api/cart", "confirm lines and totals"],
                 ["GET /api/customer", "read missing[] to see what to ask for, addresses[] to offer one"],
                 ["POST /api/orders", "checkout with address_id or an inline address, plus an Idempotency-Key"],
@@ -300,12 +299,12 @@ export default async function ApiDocsPage() {
               caller is the agent. It goes on every call, never changes, and proves the caller and nothing else.
             </p>
             <p className="mt-2 text-sm text-foreground/80">
-              Naming the <em>shopper</em> is separate, and there are two ways.{" "}
-              <code className="font-mono text-xs">Authorization: Bearer</code> from the OTP flow, or{" "}
-              <code className="font-mono text-xs">X-Shopper-Email</code> carrying their address. If both arrive the
-              token wins. The bag, profile, wishlist and order history are all keyed by the resulting account, so every
-              one of those calls — including the first add-to-bag — must name a shopper. There is no anonymous agent
-              bag.
+              Naming the <em>shopper</em> is the other header:{" "}
+              <code className="font-mono text-xs">X-Shopper-Email</code>, carrying their address. The bag, profile,
+              wishlist and order history are all keyed by the account behind it, so every one of those calls —
+              including the first add-to-bag — must carry it. There is no anonymous agent bag.{" "}
+              <strong>No token, sign-in or password is involved</strong>: nothing to store between calls, nothing to
+              refresh. The OTP endpoints still work and are unchanged, but nothing requires them.
             </p>
             <p className="mt-2 text-sm text-foreground/80">
               Addresses are trimmed and lowercased, so <code className="font-mono text-xs">Ada@Example.com</code> and{" "}
@@ -322,27 +321,19 @@ export default async function ApiDocsPage() {
               <code className="font-mono text-xs">ALLOW_SHOPPER_EMAIL_HEADER</code>, and is acceptable only on this
               demo deployment, which holds mock products and simulated payments.
             </p>
-            <Code className="mt-3">{`export AGENT_KEY='...'   # the secret GLOWA issued you
+            <Code className="mt-3">{`export AGENT_KEY='...'                  # the secret GLOWA issued you
+export SHOPPER_EMAIL='ada@example.com'  # who the call is for
 
-# 1. Sign the shopper in. The code goes to them, never to you.
-curl -s -X POST -H "X-Agent-Key: $AGENT_KEY" -H 'Content-Type: application/json' \\
-  -d '{"email":"ada@example.com","type":"sign-in"}' \\
-  '${baseUrl}/api/auth/email-otp/send-verification-otp'
+# Catalogue reads need neither header.
+curl -s '${baseUrl}/api/search?q=hoodie&limit=5'
 
-curl -s -X POST -H "X-Agent-Key: $AGENT_KEY" -H 'Content-Type: application/json' \\
-  -d '{"email":"ada@example.com","otp":"123456"}' \\
-  '${baseUrl}/api/auth/sign-in/email-otp'
-# -> {"data":{"token":"...","expiresAt":"...","expiresAtUnix":1787739561,"user":{...}}}
-
-export TOKEN='...'   # data.token from the response above
-
-# 2. Everything shopper-scoped: agent key + the shopper's token.
-curl -s -H "X-Agent-Key: $AGENT_KEY" -H "Authorization: Bearer $TOKEN" \\
+# Everything shopper-scoped: the two headers, on every call.
+curl -s -H "X-Agent-Key: $AGENT_KEY" -H "X-Shopper-Email: $SHOPPER_EMAIL" \\
   '${baseUrl}/api/cart'
 
-# Or, where the runtime cannot carry a token, name the shopper directly:
-curl -s -H "X-Agent-Key: $AGENT_KEY" -H "X-Shopper-Email: ada@example.com" \\
-  '${baseUrl}/api/cart'`}</Code>
+curl -s -X POST -H "X-Agent-Key: $AGENT_KEY" -H "X-Shopper-Email: $SHOPPER_EMAIL" \\
+  -H 'Content-Type: application/json' -d '{"handle":"hoodie-old"}' \\
+  '${baseUrl}/api/wishlist'`}</Code>
             <p className="mt-3 text-sm text-foreground/80">
               If the server has no <code className="font-mono text-xs">AGENT_API_KEY</code> configured the agent path is
               disabled entirely and every call returns 401. Browser clients sign in with email and password instead, and

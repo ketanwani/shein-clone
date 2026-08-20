@@ -100,7 +100,7 @@ Two ways to present the same Better Auth session:
 - **Bearer tokens** — how an agent presents a shopper's session, via the `bearer` plugin.
 
 An agent sends two credentials, and they answer different questions. `X-Agent-Key` proves
-the caller is the GLOWA agent; a bearer token proves which shopper the call is for. The
+the caller is the GLOWA agent; `X-Shopper-Email` names which shopper the call is for. The
 shopper gets that token by completing the email-OTP flow. Where the caller cannot carry a
 token between calls, `X-Shopper-Email` names the shopper instead — set
 `ALLOW_SHOPPER_EMAIL_HEADER` to enable it. Either way a shopper must be named before the
@@ -121,7 +121,7 @@ TOKEN=$(curl -s -X POST -H "X-Agent-Key: $AGENT_KEY" -H 'Content-Type: applicati
   -d '{"email":"ada@example.com","otp":"000000"}' \
   localhost:3000/api/auth/sign-in/email-otp | jq -r .data.token)
 
-curl -s -H "X-Agent-Key: $AGENT_KEY" -H "Authorization: Bearer $TOKEN" \
+curl -s -H "X-Agent-Key: $AGENT_KEY" -H "X-Shopper-Email: ada@example.com" \
   localhost:3000/api/wishlist
 ```
 

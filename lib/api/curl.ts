@@ -30,10 +30,17 @@ export function curlFor(endpoint: ApiEndpoint, baseUrl = DEFAULT_BASE_URL) {
   // Sign-in: the caller proves itself, and there is no shopper to name yet.
   if (endpoint.auth === "agentKey") parts.push(`-H "X-Agent-Key: $AGENT_KEY"`)
 
-  // Both credentials, because both are checked independently. These docs are
-  // agent-facing, so the cart is shown the same way — a browser would send a cookie
-  // instead, which curl examples cannot usefully illustrate.
+  // Agent-facing docs, so these show the header the agent actually sends: the caller
+  // credential plus the shopper's address. A browser reaches the same routes with a
+  // cookie, which a curl example cannot usefully illustrate.
   if (endpoint.auth === "shopper" || endpoint.auth === "cart") {
+    parts.push(`-H "X-Agent-Key: $AGENT_KEY"`)
+    parts.push(`-H "X-Shopper-Email: $SHOPPER_EMAIL"`)
+  }
+
+  // get-session inspects a live session, so it is the one shopper-scoped route an
+  // address cannot stand in for.
+  if (endpoint.auth === "agentKeyBearer") {
     parts.push(`-H "X-Agent-Key: $AGENT_KEY"`)
     parts.push(`-H "Authorization: Bearer $TOKEN"`)
   }
