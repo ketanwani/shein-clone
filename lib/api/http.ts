@@ -1,6 +1,6 @@
 import { assertAgentKey } from "@/lib/api/agent"
 import { ApiFailure } from "@/lib/api/failure"
-import { logRequestEnd, logRequestStart } from "@/lib/api/log"
+import { logRequestDetail, logRequestEnd, logRequestStart } from "@/lib/api/log"
 
 export { ApiFailure }
 
@@ -86,6 +86,8 @@ export async function handlePublic(request: Request, fn: () => Promise<Response>
 
 async function run(request: Request, fn: () => Promise<Response>, { requireValidAgentKey }: { requireValidAgentKey: boolean }) {
   const pending = logRequestStart(request)
+  // Reads a clone, so the handler below still gets an unconsumed body.
+  await logRequestDetail(pending, request)
   let response: Response
   try {
     // Before anything else, including reading the body: a caller presenting agent

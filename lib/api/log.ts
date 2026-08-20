@@ -1,11 +1,105 @@
 /**
  * Console logging for the REST API, so the dev server output shows exactly what an
  * agent called and what it got back. Set API_LOG=0 (or false/off) to silence it.
+ *
+ * API_LOG_VERBOSE=1 adds every request header and the request body, for working out why
+ * a call did something unexpected. It is off by default, and not because of noise:
+ * these requests carry the agent key, bearer tokens, passwords, OTPs, card numbers and
+ * home addresses, and a log file outlives the request that wrote it. Verbose mode
+ * redacts the credentials and the card (see SECRET_HEADERS and SECRET_FIELDS) but still
+ * writes email addresses and shipping addresses in full, because those are usually the
+ * thing being debugged. Development only.
  */
 
 const OFF = new Set(["0", "false", "off"])
 
 const enabled = () => !OFF.has((process.env.API_LOG ?? "").toLowerCase())
+
+/** Opt-in. Off unless explicitly set, like every other debug switch here. */
+const verbose = () => process.env.API_LOG_VERBOSE === "1"
+
+/**
+ * Headers whose value is a credential. Logged as a short prefix and a length: enough to
+ * tell "was it sent, and is it the one I expected" apart from "is it a different key",
+ * without putting the secret itself in a file.
+ */
+const SECRET_HEADERS = new Set(["authorization", "cookie", "set-cookie", "x-agent-key", "x-admin-otp"])
+
+/**
+ * Body fields never worth logging. A password or a card number is never the reason a
+ * call misbehaved, and writing either down is a problem in its own right.
+ */
+const SECRET_FIELDS = new Set([
+  "password",
+  "newpassword",
+  "confirm",
+  "currentpassword",
+  "cardnumber",
+  "cvc",
+  "otp",
+  "token",
+])
+
+const BODY_PREVIEW_CHARS = 600
+
+function redactSecret(value: string) {
+  const bare = value.replace(/^Bearer\s+/i, "")
+  return bare.length > 6 ? `${bare.slice(0, 6)}… (${bare.length} chars)` : `… (${bare.length} chars)`
+}
+
+/** Every header, with credential values reduced to a fingerprint. */
+function formatHeaders(request: Request) {
+  const lines: string[] = []
+  for (const [name, value] of [...request.headers.entries()].sort()) {
+    lines.push(`      ${name}: ${SECRET_HEADERS.has(name.toLowerCase()) ? redactSecret(value) : value}`)
+  }
+  return lines.join("\n")
+}
+
+/** Recursively blanks the fields above, whatever nesting they arrive in. */
+function redactBody(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(redactBody)
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([k, v]) =>
+        SECRET_FIELDS.has(k.toLowerCase()) ? [k, "[redacted]"] : [k, redactBody(v)],
+      ),
+    )
+  }
+  return value
+}
+
+/**
+ * The request body, read from a clone so the handler still gets to parse the original.
+ * Reading `request.body` directly here would leave the route with an empty stream.
+ */
+async function formatBody(request: Request): Promise<string | null> {
+  if (request.method === "GET" || request.method === "HEAD") return null
+  try {
+    const text = await request.clone().text()
+    if (!text) return null
+    try {
+      const pretty = JSON.stringify(redactBody(JSON.parse(text)))
+      return pretty.length > BODY_PREVIEW_CHARS ? `${pretty.slice(0, BODY_PREVIEW_CHARS)}…` : pretty
+    } catch {
+      // Not JSON — a form post, say. Truncate rather than guess at its shape.
+      return text.length > BODY_PREVIEW_CHARS ? `${text.slice(0, BODY_PREVIEW_CHARS)}…` : text
+    }
+  } catch {
+    return "(unreadable body)"
+  }
+}
+
+/**
+ * Logs headers and body for one request. Separate from logRequestStart because it has
+ * to await the body, and the start line should appear immediately.
+ */
+export async function logRequestDetail(pending: Pending | null, request: Request) {
+  if (!pending || !verbose()) return
+  console.log(`[api] ${pending.id}     headers:\n${formatHeaders(request)}`)
+  const body = await formatBody(request)
+  if (body) console.log(`[api] ${pending.id}     body: ${body}`)
+}
 
 /** Auth bodies carry OTPs and session tokens, so those responses are logged status-only. */
 const REDACTED = /^\/api\/auth\//
@@ -62,6 +156,7 @@ export function logRequestFailure(pending: Pending | null, err: unknown) {
 export function withApiLogging(fn: (request: Request) => Promise<Response>) {
   return async (request: Request) => {
     const pending = logRequestStart(request)
+    await logRequestDetail(pending, request)
     try {
       const response = await fn(request)
       await logRequestEnd(pending, response)
