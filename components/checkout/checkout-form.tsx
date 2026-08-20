@@ -174,26 +174,34 @@ export function CheckoutForm({
           </div>
         )}
 
+        {/*
+          Unmounted, not hidden, when a saved address is in use. A `required` input that
+          is present but not visible is unsubmittable *and* unfocusable, so the browser
+          silently refuses the submit and the Pay now button looks broken. Removing the
+          fields from the DOM makes that state unrepresentable.
+        */}
         {!usingSaved && (
-          <div>
-            <label htmlFor="address" className={labelClass}>Address</label>
-            <input id="address" name="address" required placeholder="123 Main St" className={inputClass} />
-          </div>
+          <>
+            <div>
+              <label htmlFor="address" className={labelClass}>Address</label>
+              <input id="address" name="address" required placeholder="123 Main St" className={inputClass} />
+            </div>
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+              <div>
+                <label htmlFor="city" className={labelClass}>City</label>
+                <input id="city" name="city" required placeholder="New York" className={inputClass} />
+              </div>
+              <div>
+                <label htmlFor="zip" className={labelClass}>ZIP</label>
+                <input id="zip" name="zip" required placeholder="10001" className={inputClass} />
+              </div>
+              <div className="col-span-2 sm:col-span-1">
+                <label htmlFor="country" className={labelClass}>Country</label>
+                <input id="country" name="country" required defaultValue="United States" className={inputClass} />
+              </div>
+            </div>
+          </>
         )}
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3" hidden={usingSaved}>
-          <div>
-            <label htmlFor="city" className={labelClass}>City</label>
-            <input id="city" name="city" required placeholder="New York" className={inputClass} />
-          </div>
-          <div>
-            <label htmlFor="zip" className={labelClass}>ZIP</label>
-            <input id="zip" name="zip" required={!usingSaved} placeholder="10001" className={inputClass} />
-          </div>
-          <div className="col-span-2 sm:col-span-1">
-            <label htmlFor="country" className={labelClass}>Country</label>
-            <input id="country" name="country" required={!usingSaved} defaultValue="United States" className={inputClass} />
-          </div>
-        </div>
       </fieldset>
 
       <fieldset className="flex flex-col gap-4">
