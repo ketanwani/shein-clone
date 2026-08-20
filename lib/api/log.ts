@@ -19,11 +19,32 @@ const enabled = () => !OFF.has((process.env.API_LOG ?? "").toLowerCase())
 const verbose = () => process.env.API_LOG_VERBOSE === "1"
 
 /**
- * Headers whose value is a credential. Logged as a short prefix and a length: enough to
- * tell "was it sent, and is it the one I expected" apart from "is it a different key",
- * without putting the secret itself in a file.
+ * Deciding which header values are safe to write down.
+ *
+ * This started as a list of known credential headers, which was the wrong shape: the
+ * first time it ran behind Vercel it printed x-vercel-oidc-token — a production-scoped
+ * identity token — along with x-vercel-proxy-signature and an Authorization bearer
+ * nested inside x-vercel-sc-headers. A platform can add a header carrying a secret at
+ * any time, and an allowlist of bad names only ever knows about yesterday's.
+ *
+ * So it now matches on shape as well as name, and treats anything that looks like a
+ * credential as one. A false positive costs a fingerprint instead of a value in a debug
+ * log; a false negative writes a live token to disk.
  */
-const SECRET_HEADERS = new Set(["authorization", "cookie", "set-cookie", "x-agent-key", "x-admin-otp"])
+const SECRET_HEADER_NAME = /(^|-)(authorization|cookie|token|secret|signature|sig|key|credential|password|otp|auth|jwt)(-|$)/i
+
+/** Three base64url segments: a JWT, whoever emitted it and whatever it is called. */
+const JWT_SHAPED = /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]+/
+
+/** A value long enough to be a token is treated as one, whatever the header is called. */
+const LONG_VALUE = 120
+
+function looksSecret(name: string, value: string) {
+  if (SECRET_HEADER_NAME.test(name)) return true
+  if (JWT_SHAPED.test(value)) return true
+  if (/\bBearer\s+\S/i.test(value)) return true
+  return value.length > LONG_VALUE
+}
 
 /**
  * Body fields never worth logging. A password or a card number is never the reason a
@@ -47,11 +68,11 @@ function redactSecret(value: string) {
   return bare.length > 6 ? `${bare.slice(0, 6)}… (${bare.length} chars)` : `… (${bare.length} chars)`
 }
 
-/** Every header, with credential values reduced to a fingerprint. */
-function formatHeaders(request: Request) {
+/** Every header, with anything credential-shaped reduced to a fingerprint. */
+export function formatHeaders(headers: Headers) {
   const lines: string[] = []
-  for (const [name, value] of [...request.headers.entries()].sort()) {
-    lines.push(`      ${name}: ${SECRET_HEADERS.has(name.toLowerCase()) ? redactSecret(value) : value}`)
+  for (const [name, value] of [...headers.entries()].sort()) {
+    lines.push(`      ${name}: ${looksSecret(name, value) ? redactSecret(value) : value}`)
   }
   return lines.join("\n")
 }
@@ -96,7 +117,7 @@ async function formatBody(request: Request): Promise<string | null> {
  */
 export async function logRequestDetail(pending: Pending | null, request: Request) {
   if (!pending || !verbose()) return
-  console.log(`[api] ${pending.id}     headers:\n${formatHeaders(request)}`)
+  console.log(`[api] ${pending.id}     headers:\n${formatHeaders(request.headers)}`)
   const body = await formatBody(request)
   if (body) console.log(`[api] ${pending.id}     body: ${body}`)
 }
