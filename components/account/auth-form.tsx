@@ -87,6 +87,14 @@ export function AuthForm({ mode, redirectTo = "/account" }: { mode: "login" | "s
           aria-label="Password"
         />
 
+        {mode === "login" && (
+          <div className="-mt-1 text-right">
+            <Link href="/forgot-password" className="text-xs text-muted-foreground hover:text-accent hover:underline">
+              Forgot your password?
+            </Link>
+          </div>
+        )}
+
         {error && (
           <p role="alert" className="rounded-lg bg-sale/10 px-4 py-2 text-sm text-sale">
             {error}

@@ -243,7 +243,12 @@ export const SCHEMAS: Record<string, JsonSchema> = {
   ),
   Customer: obj(
     {
-      status: { type: "string", enum: ["new", "known"], description: '"new" means nothing is on file yet.' },
+      status: {
+        type: "string",
+        enum: ["new", "known"],
+        description:
+          '"new" means the shopper has told us nothing yet — no name, no saved address. The email is not counted, because it always resolves: it is either the address the caller named them by or the one they signed up with. Read `missing` rather than branching on this.',
+      },
       email: str("Contact data only. Absent until the shopper gives one."),
       name: str("Absent until the shopper gives one."),
       missing: {
@@ -959,9 +964,9 @@ export const API_GROUPS: ApiGroup[] = [
             status: 200,
             description: "The shopper, known or not.",
             schema: obj({ customer: ref("Customer") }),
-            example: { customer: { status: "new", missing: ["email", "name", "shipping_address"], addresses: [] } },
+            example: { customer: { status: "new", email: "ada@example.com", missing: ["name", "shipping_address"], addresses: [] } },
             exampleNote:
-              "A known shopper instead returns status \"known\", their email and name, an empty missing array, and their saved addresses.",
+              "A shopper who has told us more returns status \"known\", their name, a shorter missing array, and their saved addresses. The email is always present: it is the address the call named them by, or the one they signed up with on the website, so it never appears in `missing` for a shopper the API can resolve.",
           },
           AGENT_UNAUTHORIZED,
           DATABASE_UNAVAILABLE,
