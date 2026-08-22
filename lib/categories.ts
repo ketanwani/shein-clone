@@ -1,5 +1,3 @@
-import { IS_MOCK_STORE } from "@/lib/shopify/client"
-
 export type Category = {
   slug: string
   name: string
@@ -27,12 +25,15 @@ export function getCategory(slug: string): Category | undefined {
   return CATEGORIES.find((c) => c.slug === slug)
 }
 
-// Build a Shopify Storefront query string for a category.
+/**
+ * The filter for a category, in the same dialect a Shopify Storefront query uses.
+ *
+ * This used to return undefined against mock.shop, which has neither tags nor product
+ * types — so every category page fell back to the unfiltered catalogue and all twelve
+ * rendered the same 29 items. lib/catalogue supplies both fields now, so the filter is
+ * always applied and the dialect still matches what a real store would answer.
+ */
 export function categoryQuery(category: Category): string | undefined {
-  // mock.shop has no tags or product types, and returns nothing for those filters.
-  // Drop the filter there so collection pages show the demo catalogue instead of
-  // rendering empty. A real store filters normally.
-  if (IS_MOCK_STORE) return undefined
   if (category.productType) return `product_type:'${category.productType}'`
   if (category.tag) return `tag:'${category.tag}'`
   return undefined

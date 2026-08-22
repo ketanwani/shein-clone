@@ -4,12 +4,12 @@ const domain = process.env.SHOPIFY_STORE_DOMAIN
 const token = process.env.SHOPIFY_STOREFRONT_ACCESS_TOKEN
 
 /**
- * Shopify's public demo storefront. It serves a small fixed catalogue and ignores
- * `tag:` / `product_type:` search filters, so callers that rely on those need a
- * fallback. See lib/categories.ts.
+ * Only the cart still goes through here.
+ *
+ * Products used to as well, but Shopify's demo storefront serves 29 items with no
+ * productType and no usable tags, so it could not answer a category query — see
+ * lib/catalogue. The bag stayed because cart lines need real merchandise ids.
  */
-export const IS_MOCK_STORE = domain === "mock.shop"
-
 export const endpoint = domain ? `https://${domain}/api/${API_VERSION}/graphql.json` : ""
 
 export type ShopifyFetchOptions = {
